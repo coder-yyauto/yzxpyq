@@ -1,33 +1,31 @@
 <template>
   <div class="login-container">
-    <el-card class="login-card">
-      <div slot="header">
-        <h2>登录</h2>
-      </div>
-      <el-form :model="loginForm" :rules="rules" ref="loginForm" label-width="80px">
-        <el-form-item label="用户名" prop="username">
-          <el-input v-model="loginForm.username"></el-input>
-        </el-form-item>
-        <el-form-item label="密码" prop="password">
-          <el-input type="password" v-model="loginForm.password"></el-input>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleLogin">登录</el-button>
-          <el-button @click="$router.push('/register')">注册</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+    <h1>校园社交平台</h1>
+    <el-form :model="form" :rules="rules" ref="form" label-width="80px" class="login-form">
+      <el-form-item label="用户名" prop="username">
+        <el-input v-model="form.username" placeholder="请输入用户名"></el-input>
+      </el-form-item>
+      
+      <el-form-item label="密码" prop="password">
+        <el-input type="password" v-model="form.password" placeholder="请输入密码" @keyup.enter.native="submitForm('form')"></el-input>
+      </el-form-item>
+      
+      <el-form-item>
+        <el-button type="primary" @click="submitForm('form')" class="login-btn">登录</el-button>
+        <el-button @click="$router.push('/register')" class="register-btn">注册</el-button>
+      </el-form-item>
+    </el-form>
   </div>
 </template>
 
 <script>
-import api from '../api'
+import api from '@/api'
 
 export default {
   name: 'Login',
   data() {
     return {
-      loginForm: {
+      form: {
         username: '',
         password: ''
       },
@@ -42,20 +40,56 @@ export default {
     }
   },
   methods: {
-    async handleLogin() {
-      try {
-        await this.$refs.loginForm.validate()
-        const response = await api.post('/login', this.loginForm)
-        localStorage.setItem('user', JSON.stringify(response.data))
-        this.$message.success('登录成功')
-        this.$router.push('/moments')
-      } catch (error) {
-        if (error.response) {
-          this.$message.error(error.response.data.message)
+    submitForm(formName) {
+      this.$refs[formName].validate(async (valid) => {
+        if (valid) {
+          try {
+            console.log('提交登录表单:', this.form)
+            const response = await api.post('/login', {
+              username: this.form.username,
+              password: this.form.password
+            })
+            
+            console.log('登录响应数据:', response.data)
+            
+            // 确保响应数据包含必要的用户信息
+            if (!response.data || !response.data.id) {
+              this.$message.error('登录响应缺少用户信息')
+              console.error('登录响应缺少用户ID:', response.data)
+              return
+            }
+            
+            // 保存用户信息到本地存储
+            localStorage.setItem('user', JSON.stringify(response.data))
+            console.log('用户信息已保存到本地存储')
+            
+            // 再次确认用户信息已正确保存
+            const savedUser = JSON.parse(localStorage.getItem('user') || '{}')
+            console.log('从本地存储读取的用户信息:', savedUser)
+            
+            if (!savedUser.id) {
+              this.$message.error('用户信息未正确保存')
+              console.error('本地存储中缺少用户ID')
+              return
+            }
+            
+            // 显示欢迎消息
+            this.$message.success(`欢迎回来，${response.data.real_name}!`)
+            
+            // 跳转到动态页面
+            this.$router.push('/moments')
+          } catch (error) {
+            console.error('登录失败:', error)
+            if (error.response && error.response.data && error.response.data.error) {
+              this.$message.error(error.response.data.error)
+            } else {
+              this.$message.error('登录失败，请稍后再试')
+            }
+          }
         } else {
-          this.$message.error('登录失败')
+          return false
         }
-      }
+      })
     }
   }
 }
@@ -63,21 +97,51 @@ export default {
 
 <style scoped>
 .login-container {
+  max-width: 428px;  /* iPhone 13 Pro Max 宽度 */
+  margin: 0 auto;
+  padding: 40px 20px;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
   align-items: center;
   min-height: 100vh;
-  background-color: #f5f5f5;
+  justify-content: center;
+  box-sizing: border-box;
 }
 
-.login-card {
+h1 {
+  margin-bottom: 30px;
+  color: #409EFF;
+  font-size: 28px;
+}
+
+.login-form {
   width: 100%;
-  max-width: 400px;
-  margin: 20px;
+  background-color: #fff;
+  padding: 30px;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
 }
 
-.login-card h2 {
-  text-align: center;
-  margin: 0;
+.login-btn {
+  width: 48%;
+}
+
+.register-btn {
+  width: 48%;
+  margin-left: 4%;
+}
+
+@media screen and (max-width: 428px) {
+  .login-container {
+    padding: 20px 15px;
+  }
+  
+  .login-form {
+    padding: 20px;
+  }
+  
+  h1 {
+    font-size: 24px;
+  }
 }
 </style> 

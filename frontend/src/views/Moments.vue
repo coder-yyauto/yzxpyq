@@ -1,218 +1,498 @@
 <template>
   <div class="moments-container">
-    <el-container>
-      <el-header>
-        <div class="header-content">
-          <h2>教学朋友圈</h2>
-          <div class="user-info">
-            <span>{{ user.real_name }}</span>
-            <el-button type="text" @click="handleLogout">退出</el-button>
+    <!-- 顶部导航栏 -->
+    <div class="top-nav">
+      <h1>校园动态</h1>
+      <div class="user-info">
+        <span :class="{'teacher-name': user.is_teacher}">{{ user.real_name }}</span>
+        <el-dropdown trigger="click" @command="handleCommand">
+          <span class="el-dropdown-link">
+            <i class="el-icon-arrow-down"></i>
+          </span>
+          <el-dropdown-menu slot="dropdown">
+            <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+          </el-dropdown-menu>
+        </el-dropdown>
+      </div>
+    </div>
+    
+    <div class="action-btns">
+      <el-button v-if="user.is_teacher" type="primary" @click="$router.push('/create')">发布新动态</el-button>
+    </div>
+    
+    <div v-if="loading" class="loading-container">
+      <el-skeleton :rows="15" animated />
+    </div>
+    
+    <div v-else-if="posts.length === 0" class="empty-container">
+      <p>暂无动态，{{ user.is_teacher ? '去发布一条吧！' : '请等待教师发布动态' }}</p>
+    </div>
+    
+    <div v-else class="posts-container">
+      <div v-for="post in posts" :key="post.id" class="post-card">
+        <div class="post-header">
+          <div class="post-user-info">
+            <h3 :class="{'teacher-name': post.is_teacher}">{{ post.real_name }}</h3>
+            <span class="post-time">{{ formatTime(post.created_at) }}</span>
+          </div>
+          <div class="post-actions" v-if="post.user_id === user.id && user.is_teacher">
+            <el-dropdown trigger="click" @command="handlePostAction($event, post)">
+              <span class="el-dropdown-link">
+                <i class="el-icon-more"></i>
+              </span>
+              <el-dropdown-menu slot="dropdown">
+                <el-dropdown-item command="toggle-comments">
+                  {{ post.disable_comments ? '启用评论' : '禁止评论' }}
+                </el-dropdown-item>
+                <el-dropdown-item command="delete" divided>删除动态</el-dropdown-item>
+              </el-dropdown-menu>
+            </el-dropdown>
           </div>
         </div>
-      </el-header>
-      <el-main>
-        <div class="moments-content">
-          <div v-if="user.is_teacher" class="create-post">
-            <el-button type="primary" @click="$router.push('/create-post')">发布新动态</el-button>
-          </div>
-          <div class="posts-list">
-            <el-card v-for="post in posts" :key="post.id" class="post-card">
-              <div class="post-header">
-                <span class="post-author">{{ post.real_name }}</span>
-                <span class="post-time">{{ post.created_at }}</span>
-              </div>
-              <div class="post-content">
-                {{ post.content }}
-              </div>
-              <div v-if="post.images && post.images.length" class="post-images">
-                <el-image
-                  v-for="(image, index) in post.images"
-                  :key="index"
-                  :src="image"
-                  :preview-src-list="post.images"
+        
+        <div class="post-content">
+          <p>{{ post.content }}</p>
+          
+          <!-- 九宫格图片显示 -->
+          <div v-if="post.images && post.images.length > 0" class="post-images">
+            <div :class="getImageGridClass(post.images.length)">
+              <div v-for="(image, index) in post.images" :key="index" class="image-item">
+                <el-image 
+                  :src="'/uploads/' + image" 
                   fit="cover"
+                  @click="previewImage(post.images, index)" 
                   class="post-image"
-                ></el-image>
-              </div>
-              <div class="post-actions">
-                <el-button 
-                  type="text" 
-                  @click="handleLike(post)"
-                  :class="{ 'liked': post.is_liked }"
                 >
-                  <i class="el-icon-star-off"></i>
-                  {{ post.likes }}
-                </el-button>
-                <el-button type="text" @click="showCommentInput(post)">
-                  <i class="el-icon-chat-dot-round"></i>
-                  评论
-                </el-button>
+                  <div slot="error" class="image-error">
+                    <i class="el-icon-picture-outline"></i>
+                  </div>
+                </el-image>
               </div>
-              <div class="comments-section">
-                <div v-for="comment in post.comments" :key="comment.id" class="comment-item">
-                  <div class="comment-content">
-                    <span class="comment-user">{{ comment.real_name }}</span>
-                    <span class="comment-text">{{ comment.content }}</span>
-                  </div>
-                  <div class="comment-actions">
-                    <el-button 
-                      type="text" 
-                      size="small" 
-                      @click="showReplyInput(post, comment)"
-                      v-if="comment.user_id !== user.id"
-                    >
-                      回复
-                    </el-button>
-                    <el-button 
-                      type="text" 
-                      size="small" 
-                      @click="handleDeleteComment(post, comment)"
-                      v-if="comment.user_id === user.id && !comment.replies.length"
-                    >
-                      删除
-                    </el-button>
-                  </div>
-                  <div v-if="comment.replies && comment.replies.length" class="replies-section">
-                    <div v-for="reply in comment.replies" :key="reply.id" class="reply-item">
-                      <div class="reply-content">
-                        <span class="reply-user">{{ reply.real_name }}</span>
-                        <span class="reply-text">{{ reply.content }}</span>
-                      </div>
-                      <div class="reply-actions">
-                        <el-button 
-                          type="text" 
-                          size="small" 
-                          @click="handleDeleteComment(post, reply)"
-                          v-if="reply.user_id === user.id"
-                        >
-                          删除
-                        </el-button>
-                      </div>
-                    </div>
-                  </div>
-                  <div v-if="post.replyingTo === comment.id" class="reply-input">
-                    <el-input
-                      v-model="post.replyContent"
-                      placeholder="回复评论..."
-                      @keyup.enter.native="submitReply(post, comment)"
-                    >
-                      <el-button slot="append" @click="submitReply(post, comment)">发送</el-button>
-                    </el-input>
-                  </div>
-                </div>
-                <div v-if="post.showCommentInput" class="comment-input">
-                  <el-input
-                    v-model="post.newComment"
-                    placeholder="写下你的评论..."
-                    @keyup.enter.native="submitComment(post)"
-                  >
-                    <el-button slot="append" @click="submitComment(post)">发送</el-button>
-                  </el-input>
-                </div>
-              </div>
-            </el-card>
+            </div>
           </div>
         </div>
-      </el-main>
-    </el-container>
+        
+        <div class="post-footer">
+          <div class="post-stats">
+            <span class="like-btn" @click="likePost(post)">
+              <i :class="post.is_liked ? 'el-icon-star-on' : 'el-icon-star-off'"></i>
+              {{ post.like_count > 0 ? post.like_count : '点赞' }}
+            </span>
+            <span 
+              :class="['comment-btn', {'comment-disabled': post.disable_comments}]" 
+              @click="focusCommentInput(post)"
+              v-if="!post.disable_comments"
+            >
+              <i class="el-icon-chat-line-square"></i>
+              {{ post.comment_count > 0 ? post.comment_count : '评论' }}
+            </span>
+            <span class="comment-disabled" v-else>
+              <i class="el-icon-chat-dot-square"></i>
+              已禁止评论
+            </span>
+          </div>
+          
+          <!-- 评论列表 -->
+          <div v-if="post.comments && post.comments.length > 0 && !post.disable_comments" class="post-comments">
+            <div v-for="comment in post.comments" :key="comment.id" class="comment-item">
+              <!-- 评论内容 -->
+              <div class="comment-content">
+                <span :class="{'teacher-name': comment.is_teacher}">{{ comment.real_name }}</span>
+                <span class="comment-text">：{{ comment.content }}</span>
+              </div>
+              
+              <!-- 评论操作 -->
+              <div class="comment-actions">
+                <span class="reply-btn" @click="showReplyInput(post.id, comment.id, comment.user_id, comment.real_name)">回复</span>
+                <span class="delete-btn" v-if="canDeleteComment(comment)" @click="deleteComment(comment.id)">删除</span>
+              </div>
+              
+              <!-- 回复列表 -->
+              <div v-if="comment.replies && comment.replies.length > 0" class="replies-list">
+                <div v-for="reply in comment.replies" :key="reply.id" class="reply-item">
+                  <!-- 回复内容 -->
+                  <div class="reply-content">
+                    <span :class="{'teacher-name': reply.is_teacher}">{{ reply.real_name }}</span>
+                    <span class="reply-text">回复</span>
+                    <span :class="{'teacher-name': reply.replied_to_is_teacher}">{{ reply.replied_to_real_name }}</span>
+                    <span class="reply-text">：{{ reply.content }}</span>
+                  </div>
+                  
+                  <!-- 回复操作 -->
+                  <div class="reply-actions">
+                    <span class="reply-btn" @click="showReplyInput(post.id, comment.id, reply.user_id, reply.real_name)">回复</span>
+                    <span class="delete-btn" v-if="canDeleteComment(reply)" @click="deleteComment(reply.id)">删除</span>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- 回复输入框 -->
+              <div v-if="replyInfo.active && replyInfo.commentId === comment.id" class="reply-input-container">
+                <el-input
+                  v-model="replyInfo.content"
+                  type="textarea"
+                  :rows="2"
+                  :placeholder="`回复 ${replyInfo.replyToName}...`"
+                ></el-input>
+                <div class="reply-btns">
+                  <el-button size="mini" @click="cancelReply">取消</el-button>
+                  <el-button type="primary" size="mini" @click="submitReply(post.id)">提交回复</el-button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 评论输入框 -->
+          <div v-if="!post.disable_comments" class="comment-input-container" :id="`comment-input-${post.id}`">
+            <el-input
+              v-model="commentContent[post.id]"
+              type="textarea"
+              :rows="2"
+              placeholder="发表评论..."
+            ></el-input>
+            <el-button type="primary" @click="submitComment(post.id)">评论</el-button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script>
-import api from '../api'
+import api from '@/api'
+import { formatDistanceToNow } from 'date-fns'
+import { zhCN } from 'date-fns/locale'
 
 export default {
   name: 'Moments',
   data() {
     return {
-      user: JSON.parse(localStorage.getItem('user') || '{}'),
-      posts: []
+      loading: true,
+      posts: [],
+      user: {},
+      commentContent: {},
+      replyInfo: {
+        active: false,
+        postId: null,
+        commentId: null,
+        replyToUserId: null,
+        replyToName: '',
+        content: ''
+      }
     }
   },
   created() {
-    this.fetchPosts()
-  },
-  methods: {
-    async fetchPosts() {
-      try {
-        const response = await api.get('/posts')
-        this.posts = response.data
-      } catch (error) {
-        this.$message.error('获取动态失败')
+    console.log('Moments组件创建')
+    // 从本地存储获取用户信息
+    const storedUser = localStorage.getItem('user')
+    console.log('Moments - 本地存储中的用户字符串:', storedUser)
+    
+    if (!storedUser) {
+      console.error('Moments - 本地存储中没有用户信息')
+      this.$message.error('请先登录')
+      this.$router.push('/login')
+      return
+    }
+    
+    try {
+      this.user = JSON.parse(storedUser)
+      console.log('Moments - 解析后的用户对象:', this.user)
+      
+      if (!this.user || !this.user.id) {
+        console.error('Moments - 用户对象无效或缺少ID')
+        this.$message.error('登录信息无效，请重新登录')
+        localStorage.removeItem('user')
+        this.$router.push('/login')
+        return
       }
-    },
-    async handleLike(post) {
-      try {
-        const response = await api.post(`/posts/${post.id}/like`)
-        post.likes = response.data.likes
-      } catch (error) {
-        this.$message.error('点赞失败')
-      }
-    },
-    showCommentInput(post) {
-      this.$set(post, 'showCommentInput', true)
-      this.$set(post, 'newComment', '')
-    },
-    showReplyInput(post, comment) {
-      this.$set(post, 'replyingTo', comment.id)
-      this.$set(post, 'replyContent', '')
-    },
-    async submitComment(post) {
-      if (!post.newComment.trim()) return
-      try {
-        const response = await api.post(`/posts/${post.id}/comments`, {
-          content: post.newComment,
-          user_id: this.user.id
-        })
-        post.comments.push(response.data.comment)
-        post.newComment = ''
-        post.showCommentInput = false
-      } catch (error) {
-        this.$message.error('评论失败')
-      }
-    },
-    async submitReply(post, comment) {
-      if (!post.replyContent.trim()) return
-      try {
-        const response = await api.post(`/posts/${post.id}/comments`, {
-          content: post.replyContent,
-          user_id: this.user.id,
-          parent_id: comment.id
-        })
-        comment.replies.push(response.data.comment)
-        post.replyContent = ''
-        post.replyingTo = null
-      } catch (error) {
-        this.$message.error('回复失败')
-      }
-    },
-    async handleDeleteComment(post, comment) {
-      try {
-        await api.delete(`/comments/${comment.id}`, {
-          data: { user_id: this.user.id }
-        })
-        if (comment.parent_id) {
-          // 删除回复
-          const parentComment = post.comments.find(c => c.id === comment.parent_id)
-          if (parentComment) {
-            parentComment.replies = parentComment.replies.filter(r => r.id !== comment.id)
-          }
-        } else {
-          // 删除主评论
-          post.comments = post.comments.filter(c => c.id !== comment.id)
-        }
-        this.$message.success('删除成功')
-      } catch (error) {
-        if (error.response) {
-          this.$message.error(error.response.data.message)
-        } else {
-          this.$message.error('删除失败')
-        }
-      }
-    },
-    handleLogout() {
+      
+      this.fetchPosts()
+    } catch (error) {
+      console.error('Moments - 解析用户信息时出错:', error)
+      this.$message.error('登录信息无效，请重新登录')
       localStorage.removeItem('user')
       this.$router.push('/login')
+    }
+  },
+  methods: {
+    handleCommand(command) {
+      if (command === 'logout') {
+        this.logout()
+      }
+    },
+    logout() {
+      localStorage.removeItem('user')
+      this.$message.success('已退出登录')
+      this.$router.push('/login')
+    },
+    async fetchPosts() {
+      try {
+        if (!this.user || !this.user.id) {
+          this.$message.error('请先登录')
+          this.$router.push('/login')
+          return
+        }
+        
+        this.loading = true
+        const response = await api.get('/posts', {
+          params: { user_id: this.user.id }
+        })
+        
+        if (response.data && Array.isArray(response.data)) {
+          this.posts = response.data
+          // 初始化评论内容对象
+          this.posts.forEach(post => {
+            this.$set(this.commentContent, post.id, '')
+          })
+        } else {
+          console.error('获取动态失败：数据格式错误', response.data)
+          this.$message.error('获取动态失败：数据格式错误')
+        }
+      } catch (error) {
+        console.error('获取动态失败:', error)
+        if (error.response) {
+          if (error.response.status === 401) {
+            this.$message.error('登录已过期，请重新登录')
+            localStorage.removeItem('user')
+            this.$router.push('/login')
+            return
+          }
+          if (error.response.data && error.response.data.error) {
+            this.$message.error(error.response.data.error)
+          } else {
+            this.$message.error('获取动态失败')
+          }
+        } else {
+          this.$message.error('网络错误，请稍后重试')
+        }
+      } finally {
+        this.loading = false
+      }
+    },
+    formatTime(timeString) {
+      try {
+        const date = new Date(timeString)
+        return formatDistanceToNow(date, { addSuffix: true, locale: zhCN })
+      } catch (e) {
+        return timeString
+      }
+    },
+    getImageGridClass(count) {
+      if (count === 1) return 'image-grid-1'
+      if (count === 2) return 'image-grid-2'
+      if (count === 3) return 'image-grid-3'
+      if (count === 4) return 'image-grid-4'
+      if (count <= 6) return 'image-grid-6'
+      return 'image-grid-9'
+    },
+    previewImage(images, index) {
+      // 添加前缀以获取完整URL
+      const fullImageUrl = `/uploads/${images[index]}`
+      this.$msgbox({
+        title: '图片预览',
+        message: this.$createElement('img', {
+          attrs: {
+            src: fullImageUrl,
+            alt: '预览图片',
+            style: 'max-width: 100%; max-height: 80vh;'
+          }
+        }),
+        showCancelButton: false,
+        confirmButtonText: '关闭',
+        customClass: 'image-preview-dialog'
+      })
+    },
+    async likePost(post) {
+      try {
+        const response = await api.post(`/posts/${post.id}/like`, {
+          user_id: this.user.id
+        })
+        
+        // 更新点赞状态
+        post.is_liked = response.data.is_liked
+        post.like_count = response.data.likes
+        
+        // 提示用户
+        this.$message.success(response.data.message)
+      } catch (error) {
+        console.error('点赞失败:', error)
+        if (error.response && error.response.data && error.response.data.error) {
+          this.$message.error(error.response.data.error)
+        } else {
+          this.$message.error('点赞失败')
+        }
+      }
+    },
+    focusCommentInput(post) {
+      if (post.disable_comments) return
+      
+      this.$nextTick(() => {
+        const commentInput = document.getElementById(`comment-input-${post.id}`)
+        if (commentInput) {
+          commentInput.querySelector('textarea').focus()
+        }
+      })
+    },
+    async submitComment(postId) {
+      const content = this.commentContent[postId]
+      if (!content || !content.trim()) {
+        this.$message.warning('评论内容不能为空')
+        return
+      }
+      
+      try {
+        const response = await api.post(`/posts/${postId}/comments`, {
+          content,
+          user_id: this.user.id
+        })
+        
+        // 清空评论内容
+        this.$set(this.commentContent, postId, '')
+        
+        // 刷新动态列表
+        this.fetchPosts()
+        
+        // 提示用户
+        this.$message.success(response.data.message)
+      } catch (error) {
+        console.error('评论失败:', error)
+        if (error.response && error.response.data && error.response.data.error) {
+          this.$message.error(error.response.data.error)
+        } else {
+          this.$message.error('评论失败')
+        }
+      }
+    },
+    showReplyInput(postId, commentId, userId, name) {
+      this.replyInfo = {
+        active: true,
+        postId,
+        commentId,
+        replyToUserId: userId,
+        replyToName: name,
+        content: ''
+      }
+    },
+    cancelReply() {
+      this.replyInfo.active = false
+      this.replyInfo.content = ''
+    },
+    async submitReply(postId) {
+      if (!this.replyInfo.content || !this.replyInfo.content.trim()) {
+        this.$message.warning('回复内容不能为空')
+        return
+      }
+      
+      try {
+        const response = await api.post(`/posts/${postId}/comments`, {
+          content: this.replyInfo.content,
+          user_id: this.user.id,
+          parent_id: this.replyInfo.commentId,
+          replied_to_user_id: this.replyInfo.replyToUserId
+        })
+        
+        // 清空回复内容并隐藏回复框
+        this.cancelReply()
+        
+        // 刷新动态列表
+        this.fetchPosts()
+        
+        // 提示用户
+        this.$message.success(response.data.message)
+      } catch (error) {
+        console.error('回复失败:', error)
+        if (error.response && error.response.data && error.response.data.error) {
+          this.$message.error(error.response.data.error)
+        } else {
+          this.$message.error('回复失败')
+        }
+      }
+    },
+    canDeleteComment(comment) {
+      return comment.user_id === this.user.id
+    },
+    async deleteComment(commentId) {
+      try {
+        const confirmed = await this.$confirm('确定要删除这条评论吗？', '提示', {
+          confirmButtonText: '确定',
+          cancelButtonText: '取消',
+          type: 'warning'
+        }).catch(() => false)
+        
+        if (!confirmed) return
+        
+        const response = await api.delete(`/comments/${commentId}`, {
+          params: { user_id: this.user.id }
+        })
+        
+        // 刷新动态列表
+        this.fetchPosts()
+        
+        // 提示用户
+        this.$message.success(response.data.message)
+      } catch (error) {
+        console.error('删除评论失败:', error)
+        if (error.response && error.response.data && error.response.data.error) {
+          this.$message.error(error.response.data.error)
+        } else {
+          this.$message.error('删除评论失败')
+        }
+      }
+    },
+    async handlePostAction(command, post) {
+      if (command === 'delete') {
+        this.deletePost(post.id)
+      } else if (command === 'toggle-comments') {
+        this.toggleComments(post.id)
+      }
+    },
+    async deletePost(postId) {
+      try {
+        const confirmed = await this.$confirm('确定要删除这条动态吗？', '提示', {
+          confirmButtonText: '确定',
+          cancelButtonText: '取消',
+          type: 'warning'
+        }).catch(() => false)
+        
+        if (!confirmed) return
+        
+        const response = await api.delete(`/posts/${postId}`, {
+          params: { user_id: this.user.id }
+        })
+        
+        // 刷新动态列表
+        this.fetchPosts()
+        
+        // 提示用户
+        this.$message.success(response.data.message)
+      } catch (error) {
+        console.error('删除动态失败:', error)
+        if (error.response && error.response.data && error.response.data.error) {
+          this.$message.error(error.response.data.error)
+        } else {
+          this.$message.error('删除动态失败')
+        }
+      }
+    },
+    async toggleComments(postId) {
+      try {
+        const response = await api.put(`/posts/${postId}/toggle-comments`, {
+          user_id: this.user.id
+        })
+        
+        // 刷新动态列表
+        this.fetchPosts()
+        
+        // 提示用户
+        this.$message.success(response.data.message)
+      } catch (error) {
+        console.error('修改评论设置失败:', error)
+        if (error.response && error.response.data && error.response.data.error) {
+          this.$message.error(error.response.data.error)
+        } else {
+          this.$message.error('修改评论设置失败')
+        }
+      }
     }
   }
 }
@@ -220,172 +500,303 @@ export default {
 
 <style scoped>
 .moments-container {
-  min-height: 100vh;
-  background-color: #f5f5f5;
-  max-width: 390px;  /* iPhone 13 Pro 宽度 */
+  max-width: 428px;  /* iPhone 13 Pro Max 宽度 */
   margin: 0 auto;
-  position: relative;
+  padding: 15px;
 }
 
-.el-header {
-  background-color: #fff;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  padding: 0 20px;
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 100;
-}
-
-.header-content {
+.top-nav {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 100%;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #eaeaea;
 }
 
 .user-info {
   display: flex;
   align-items: center;
+  gap: 5px;
+}
+
+.el-dropdown-link {
+  cursor: pointer;
+  color: #409EFF;
+  margin-left: 5px;
+}
+
+h1 {
+  font-size: 22px;
+  color: #409EFF;
+  margin: 0;
+}
+
+.action-btns {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
   gap: 10px;
 }
 
-.moments-content {
-  padding: 20px;
-  padding-top: 60px;  /* 为固定头部留出空间 */
+.loading-container, .empty-container {
+  margin-top: 20px;
+  text-align: center;
 }
 
-.create-post {
-  margin-bottom: 20px;
-  text-align: right;
-}
-
-.post-card {
-  margin-bottom: 20px;
-  border-radius: 8px;
-}
-
-.post-header {
-  margin-bottom: 10px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.post-author {
-  font-weight: bold;
+.empty-container p {
+  color: #909399;
   font-size: 16px;
 }
 
+.posts-container {
+  margin-top: 20px;
+}
+
+.post-card {
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  margin-bottom: 20px;
+  padding: 15px;
+  overflow: hidden;
+}
+
+.post-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.post-user-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.post-user-info h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.teacher-name {
+  color: #409EFF;
+  font-weight: bold;
+}
+
 .post-time {
-  color: #999;
-  font-size: 14px;
+  font-size: 12px;
+  color: #909399;
+  margin-top: 5px;
+}
+
+.post-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.el-dropdown-link {
+  cursor: pointer;
+  color: #909399;
 }
 
 .post-content {
-  margin-bottom: 10px;
-  line-height: 1.6;
-  font-size: 15px;
+  margin-top: 10px;
+  margin-bottom: 15px;
 }
 
+.post-content p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+/* 九宫格图片样式 */
 .post-images {
+  margin-top: 10px;
+  overflow: hidden;
+}
+
+.image-grid-1 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  max-width: 66%;
+}
+
+.image-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.image-grid-3 {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 5px;
-  margin-bottom: 10px;
+  gap: 4px;
+}
+
+.image-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.image-grid-6 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.image-grid-9 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.image-item {
+  position: relative;
+  overflow: hidden;
+  background-color: #f5f5f5;
+  aspect-ratio: 1;
+  border-radius: 4px;
 }
 
 .post-image {
   width: 100%;
-  height: 120px;
+  height: 100%;
+  display: block;
   object-fit: cover;
-  border-radius: 4px;
+  cursor: pointer;
+  transition: transform 0.3s;
 }
 
-.post-actions {
-  border-top: 1px solid #eee;
+.post-image:hover {
+  transform: scale(1.03);
+}
+
+.image-error {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  color: #909399;
+  font-size: 24px;
+  background-color: #f5f5f5;
+}
+
+.post-footer {
+  border-top: 1px solid #f0f0f0;
   padding-top: 10px;
-  margin-bottom: 10px;
 }
 
-.comments-section {
-  background-color: #f9f9f9;
-  padding: 10px;
+.post-stats {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 10px;
+  gap: 20px;
+}
+
+.like-btn, .comment-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #606266;
+  cursor: pointer;
+}
+
+.comment-disabled {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #909399;
+  cursor: not-allowed;
+}
+
+.like-btn i.el-icon-star-on {
+  color: #409EFF;
+}
+
+.post-comments {
+  margin-top: 10px;
+  background-color: #f8f8f8;
   border-radius: 4px;
+  padding: 10px;
 }
 
 .comment-item {
   margin-bottom: 10px;
-  padding: 8px;
-  background-color: #f9f9f9;
-  border-radius: 4px;
 }
 
 .comment-content {
-  margin-bottom: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  margin-bottom: 5px;
 }
 
-.comment-user {
-  font-weight: bold;
-  margin-right: 5px;
-  color: #409EFF;
+.comment-text {
+  color: #606266;
+  word-break: break-word;
 }
 
-.comment-actions {
+.comment-actions, .reply-actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 4px;
+  font-size: 12px;
+  margin-bottom: 5px;
 }
 
-.replies-section {
-  margin-left: 20px;
-  margin-top: 8px;
-  padding-left: 10px;
-  border-left: 2px solid #eee;
+.reply-btn, .delete-btn {
+  color: #909399;
+  cursor: pointer;
+}
+
+.reply-btn:hover, .delete-btn:hover {
+  color: #409EFF;
+}
+
+.replies-list {
+  margin-left: 15px;
+  margin-top: 5px;
+  margin-bottom: 5px;
 }
 
 .reply-item {
   margin-bottom: 8px;
-  padding: 4px;
-  background-color: #fff;
-  border-radius: 4px;
 }
 
 .reply-content {
-  margin-bottom: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  margin-bottom: 3px;
 }
 
-.reply-user {
-  font-weight: bold;
-  margin-right: 5px;
-  color: #409EFF;
+.reply-text {
+  color: #606266;
+  margin: 0 3px;
 }
 
-.reply-actions {
+.reply-input-container, .comment-input-container {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.reply-btns {
   display: flex;
   justify-content: flex-end;
-  margin-top: 4px;
+  gap: 10px;
 }
 
-.reply-input {
-  margin-top: 8px;
-  margin-left: 20px;
-}
-
-.comment-input {
-  margin-top: 10px;
-}
-
-.post-actions .liked {
-  color: #409EFF;
-}
-
-/* 适配 iPhone 13 Pro 的底部安全区域 */
-@supports (padding-bottom: env(safe-area-inset-bottom)) {
-  .moments-content {
-    padding-bottom: calc(20px + env(safe-area-inset-bottom));
-  }
+.image-preview-dialog {
+  max-width: 90vw;
 }
 </style> 

@@ -1,17 +1,18 @@
 {
-  "name": "school-moments-frontend",
-  "version": "1.0.0",
+  "name": "campus-social-platform",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "vue-cli-service serve",
-    "serve": "vue-cli-service serve",
-    "build": "vue-cli-service build",
+    "serve": "export NODE_OPTIONS=--openssl-legacy-provider && vue-cli-service serve",
+    "build": "export NODE_OPTIONS=--openssl-legacy-provider && vue-cli-service build",
     "lint": "vue-cli-service lint"
   },
   "dependencies": {
     "axios": "^0.21.1",
     "core-js": "^3.6.5",
-    "element-ui": "^2.15.1",
+    "date-fns": "^2.16.1",
+    "element-ui": "^2.15.6",
+    "moment": "^2.29.1",
     "vue": "^2.6.11",
     "vue-router": "^3.2.0",
     "vuex": "^3.4.0"
@@ -23,8 +24,11 @@
     "@vue/cli-plugin-vuex": "~4.5.0",
     "@vue/cli-service": "~4.5.0",
     "babel-eslint": "^10.1.0",
+    "chokidar": "^3.4.0",
     "eslint": "^6.7.2",
     "eslint-plugin-vue": "^6.2.2",
+    "sass": "^1.26.5",
+    "sass-loader": "^8.0.2",
     "vue-template-compiler": "^2.6.11"
   }
-} 
+}

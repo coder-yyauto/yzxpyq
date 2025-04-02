@@ -1,32 +1,24 @@
 <template>
   <div id="app">
-    <router-view></router-view>
+    <router-view/>
   </div>
 </template>
 
-<script>
-export default {
-  name: 'App'
-}
-</script>
-
 <style>
-#app {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  color: #2c3e50;
-  margin: 0;
-  padding: 0;
-}
-
-* {
-  box-sizing: border-box;
-}
-
 body {
   margin: 0;
   padding: 0;
+  font-family: Arial, sans-serif;
   background-color: #f5f5f5;
+}
+
+#app {
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* 修复 移动端点击延迟 */
+* {
+  touch-action: manipulation;
 }
 </style> 

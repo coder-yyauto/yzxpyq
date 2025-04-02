@@ -1,132 +1,211 @@
 <template>
   <div class="create-post-container">
-    <el-container>
-      <el-header>
-        <div class="header-content">
-          <h2>发布动态</h2>
-          <el-button type="text" @click="$router.push('/moments')">返回</el-button>
+    <h1>发布新动态</h1>
+    
+    <el-card class="create-post-card">
+      <el-form :model="postForm" ref="postForm" :rules="rules">
+        <el-form-item prop="content">
+          <el-input
+            type="textarea"
+            v-model="postForm.content"
+            :rows="4"
+            placeholder="分享你的动态..."
+          ></el-input>
+        </el-form-item>
+        
+        <div class="upload-container">
+          <el-upload
+            action="#"
+            list-type="picture-card"
+            :file-list="fileList"
+            :on-preview="handlePictureCardPreview"
+            :on-remove="handleRemove"
+            :before-upload="beforeUpload"
+            :limit="9"
+            :auto-upload="false"
+            :on-exceed="handleExceed"
+            :on-change="handleFileChange"
+            multiple
+          >
+            <i class="el-icon-plus"></i>
+            <div slot="tip" class="el-upload__tip">支持JPG/PNG/GIF文件，最多可上传9张图片</div>
+          </el-upload>
+          <el-dialog :visible.sync="dialogVisible" append-to-body>
+            <img width="100%" :src="dialogImageUrl" alt="">
+          </el-dialog>
         </div>
-      </el-header>
-      <el-main>
-        <el-form :model="postForm" :rules="rules" ref="postForm" label-width="80px">
-          <el-form-item label="内容" prop="content">
-            <el-input
-              type="textarea"
-              v-model="postForm.content"
-              :rows="4"
-              placeholder="分享你的教学心得..."
-            ></el-input>
-          </el-form-item>
-          <el-form-item label="图片">
-            <el-upload
-              class="upload-demo"
-              action="/api/upload"
-              :on-success="handleUploadSuccess"
-              :on-error="handleUploadError"
-              :on-remove="handleRemove"
-              :before-upload="beforeUpload"
-              multiple
-              :limit="9"
-              :data="{ user_id: user.id }"
-            >
-              <el-button size="small" type="primary">点击上传</el-button>
-              <div slot="tip" class="el-upload__tip">最多上传9张图片，且每张不超过16MB</div>
-            </el-upload>
-            <div v-if="postForm.images.length > 0" class="image-grid">
-              <div v-for="(image, index) in postForm.images" :key="index" class="image-item">
-                <el-image
-                  :src="image"
-                  fit="cover"
-                  class="preview-image"
-                ></el-image>
-                <div class="image-actions">
-                  <el-button type="text" @click="handleRemove({ url: image })">删除</el-button>
-                </div>
-              </div>
-            </div>
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" @click="handleSubmit">发布</el-button>
-          </el-form-item>
-        </el-form>
-      </el-main>
-    </el-container>
+        
+        <el-form-item v-if="user.is_teacher">
+          <el-checkbox v-model="postForm.disable_comments">禁止评论</el-checkbox>
+        </el-form-item>
+        
+        <el-form-item>
+          <el-button type="primary" @click="submitPost" :loading="submitting">发布</el-button>
+          <el-button @click="$router.push('/moments')">取消</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
   </div>
 </template>
 
 <script>
-import axios from 'axios'
-import api from '../api'
+import api from '@/api'
 
 export default {
   name: 'CreatePost',
   data() {
     return {
+      user: {},
       postForm: {
         content: '',
-        images: []
+        disable_comments: false
       },
-      user: JSON.parse(localStorage.getItem('user') || '{}'),
+      fileList: [],
+      dialogImageUrl: '',
+      dialogVisible: false,
+      submitting: false,
       rules: {
         content: [
-          { required: true, message: '请输入内容', trigger: 'blur' },
-          { max: 500, message: '内容不能超过500个字符', trigger: 'blur' }
+          { required: true, message: '请输入动态内容', trigger: 'blur' }
         ]
       }
     }
   },
-  methods: {
-    handleUploadSuccess(response) {
-      if (response.error) {
-        this.$message.error(response.error)
+  created() {
+    // 检查用户登录状态
+    const storedUser = localStorage.getItem('user')
+    if (storedUser) {
+      this.user = JSON.parse(storedUser)
+      
+      // 验证是否为教师身份
+      if (!this.user.is_teacher) {
+        this.$message.error('只有教师才能发布动态')
+        this.$router.push('/moments')
         return
       }
-      this.postForm.images.push(response.url)
-    },
-    handleUploadError(error) {
-      this.$message.error('图片上传失败')
-      console.error('Upload error:', error)
-    },
+    } else {
+      this.$message.error('请先登录')
+      this.$router.push('/login')
+    }
+  },
+  methods: {
     handleRemove(file) {
-      const index = this.postForm.images.indexOf(file.url)
+      // 找到并移除已上传的文件
+      const index = this.fileList.findIndex(f => f.uid === file.uid)
       if (index !== -1) {
-        this.postForm.images.splice(index, 1)
+        this.fileList.splice(index, 1)
       }
+    },
+    handlePictureCardPreview(file) {
+      this.dialogImageUrl = file.url
+      this.dialogVisible = true
+    },
+    handleExceed() {
+      this.$message.warning('最多只能上传9张图片')
     },
     beforeUpload(file) {
-      const isImage = file.type.startsWith('image/')
-      const isLt16M = file.size / 1024 / 1024 < 16
-
-      if (!isImage) {
-        this.$message.error('只能上传图片文件!')
+      const isValidType = ['image/jpeg', 'image/png', 'image/gif'].includes(file.type)
+      const isLt5M = file.size / 1024 / 1024 < 5
+      
+      if (!isValidType) {
+        this.$message.error('只能上传JPG/PNG/GIF格式图片!')
         return false
       }
-      if (!isLt16M) {
-        this.$message.error('图片大小不能超过 16MB!')
+      
+      if (!isLt5M) {
+        this.$message.error('图片大小不能超过5MB!')
         return false
       }
-      if (this.postForm.images.length >= 9) {
-        this.$message.error('最多只能上传9张图片!')
-        return false
-      }
+      
       return true
     },
-    async handleSubmit() {
+    async handleFileChange(file, fileList) {
+      // 将当前文件列表保存到组件状态中
+      this.fileList = fileList
+      
+      // 我们将在submitPost方法中统一上传所有文件
+    },
+    async submitPost() {
       try {
         await this.$refs.postForm.validate()
+        
+        this.submitting = true
+        
+        // 如果有文件要上传
+        let imageFilenames = ''
+        if (this.fileList.length > 0) {
+          // 构造FormData，包含所有文件
+          const formData = new FormData()
+          
+          // 添加所有文件到formData
+          this.fileList.forEach(file => {
+            if (file.raw) {
+              formData.append('files[]', file.raw)
+              console.log('添加文件到表单:', file.name, file.size)
+            } else {
+              console.warn('文件缺少raw属性:', file)
+            }
+          })
+          
+          formData.append('user_id', this.user.id)
+          
+          // 调试信息
+          console.log('上传文件数量:', this.fileList.length)
+          for (let pair of formData.entries()) {
+            console.log('表单数据:', pair[0], typeof pair[1])
+          }
+          
+          try {
+            console.log('开始上传图片...')
+            const uploadResponse = await api.post('/upload', formData, {
+              headers: {
+                'Content-Type': 'multipart/form-data'
+              }
+            })
+            
+            console.log('上传响应:', uploadResponse.data)
+            
+            if (uploadResponse.data && uploadResponse.data.filenames) {
+              // 保存返回的文件名列表
+              imageFilenames = uploadResponse.data.filenames.join(',')
+              this.$message.success(uploadResponse.data.message || '图片上传成功')
+            }
+          } catch (error) {
+            console.error('上传图片失败:', error)
+            if (error.response) {
+              console.error('错误响应:', error.response.status, error.response.data)
+            }
+            if (error.response && error.response.data && error.response.data.error) {
+              this.$message.error(error.response.data.error)
+              // 不阻止继续发布，可能有些图片上传成功了
+            } else {
+              this.$message.error('上传图片失败，但将继续发布文字内容')
+            }
+          }
+        }
+        
+        // 发布动态，包含已上传的图片文件名
         const response = await api.post('/posts', {
           content: this.postForm.content,
-          images: this.postForm.images.join(','),
-          user_id: this.user.id
+          images: imageFilenames,
+          user_id: this.user.id,
+          disable_comments: this.postForm.disable_comments
         })
-        this.$message.success('发布成功')
+        
+        this.$message.success(response.data.message || '发布成功')
         this.$router.push('/moments')
       } catch (error) {
-        if (error.response) {
-          this.$message.error(error.response.data.message)
+        console.error('发布失败:', error)
+        if (error.response && error.response.data && error.response.data.error) {
+          this.$message.error(error.response.data.error)
+        } else if (typeof error === 'string') {
+          // Form validation error
+          return
         } else {
-          this.$message.error('发布失败')
+          this.$message.error('发布失败，请稍后再试')
         }
+      } finally {
+        this.submitting = false
       }
     }
   }
@@ -135,85 +214,42 @@ export default {
 
 <style scoped>
 .create-post-container {
-  min-height: 100vh;
-  background-color: #f5f5f5;
-  max-width: 390px;  /* iPhone 13 Pro 宽度 */
+  max-width: 428px;  /* iPhone 13 Pro Max 宽度 */
   margin: 0 auto;
-  position: relative;
-}
-
-.el-header {
-  background-color: #fff;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  padding: 0 20px;
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 100;
-}
-
-.header-content {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  height: 100%;
-}
-
-.header-content h2 {
-  margin: 0;
-}
-
-.el-main {
   padding: 20px;
-  padding-top: 60px;  /* 为固定头部留出空间 */
 }
 
-.upload-demo {
+h1 {
+  text-align: center;
   margin-bottom: 20px;
+  color: #409EFF;
+}
+
+.create-post-card {
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+}
+
+.upload-container {
+  margin: 20px 0;
 }
 
 .el-upload__tip {
-  margin-top: 10px;
-  color: #666;
-  font-size: 12px;
+  line-height: 1.2;
+  padding-top: 5px;
+  color: #909399;
 }
 
-.image-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin-top: 20px;
-}
-
-.image-item {
-  position: relative;
-  aspect-ratio: 1;
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.preview-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.image-actions {
-  position: absolute;
-  top: 0;
-  right: 0;
-  background: rgba(0, 0, 0, 0.5);
-  padding: 5px;
-  border-radius: 0 0 0 4px;
-}
-
-.image-actions .el-button {
-  color: white;
-  padding: 2px 5px;
-}
-
-.image-actions .el-button:hover {
-  color: #409EFF;
+@media screen and (max-width: 428px) {
+  .create-post-container {
+    padding: 15px;
+  }
+  
+  .el-upload--picture-card {
+    width: 80px;
+    height: 80px;
+    line-height: 84px;
+  }
 }
 </style> 

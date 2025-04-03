@@ -3,6 +3,8 @@ module.exports = {
   devServer: {
     port: 8080,
     host: '0.0.0.0',
+    allowedHosts: ['localhost', '127.0.0.1', '0.0.0.0'],
+    disableHostCheck: true,
     proxy: {
       '/api': {
         target: 'http://localhost:5000',
@@ -20,6 +22,9 @@ module.exports = {
           '^/uploads': '/uploads'
         }
       }
+    },
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
     }
   },
   // 配置构建时的选项

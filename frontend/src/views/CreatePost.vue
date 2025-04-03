@@ -28,7 +28,7 @@
             multiple
           >
             <i class="el-icon-plus"></i>
-            <div slot="tip" class="el-upload__tip">支持JPG/PNG/GIF文件，最多可上传9张图片</div>
+            <div slot="tip" class="el-upload__tip">支持JPG/PNG/GIF/WEBP/BMP/SVG/TIFF文件，最多可上传9张图片</div>
           </el-upload>
           <el-dialog :visible.sync="dialogVisible" append-to-body>
             <img width="100%" :src="dialogImageUrl" alt="">
@@ -104,11 +104,11 @@ export default {
       this.$message.warning('最多只能上传9张图片')
     },
     beforeUpload(file) {
-      const isValidType = ['image/jpeg', 'image/png', 'image/gif'].includes(file.type)
+      const isValidType = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml', 'image/tiff'].includes(file.type)
       const isLt5M = file.size / 1024 / 1024 < 5
       
       if (!isValidType) {
-        this.$message.error('只能上传JPG/PNG/GIF格式图片!')
+        this.$message.error('只能上传JPG/PNG/GIF/WEBP/BMP/SVG/TIFF格式图片!')
         return false
       }
       

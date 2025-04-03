@@ -3,3 +3,4 @@ flask-sqlalchemy>=2.5.1
 flask-cors>=3.0.10
 werkzeug>=2.0.1
 watchdog>=6.0.0
+pillow>=9.0.0

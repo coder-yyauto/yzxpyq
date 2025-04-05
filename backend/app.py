@@ -8,10 +8,31 @@ import os
 import time
 import secrets
 import json
+import shutil
+import base64
+import uuid
 
 # 创建应用实例
 app = Flask(__name__)
 CORS(app)  # 启用跨域支持
+
+# 添加请求日志记录
+@app.before_request
+def log_request_info():
+    print('请求开始 -----------------')
+    print('请求路径:', request.path)
+    print('请求方法:', request.method)
+    print('请求头:', dict(request.headers))
+    print('请求IP:', request.remote_addr)
+    print('----------------------')
+
+# 添加全局错误处理
+@app.errorhandler(Exception)
+def handle_exception(e):
+    print('发生异常:', str(e))
+    import traceback
+    traceback.print_exc()
+    return jsonify({'error': f'服务器内部错误: {str(e)}'}), 500
 
 # 配置数据库
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -19,8 +40,6 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'in
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(basedir, 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB 文件上传限制
-app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'tiff'}
-app.config['TEACHER_REGISTER_CODE'] = 'teacher2024'  # 教师注册码
 
 # 确保上传目录存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -74,77 +93,190 @@ class Like(db.Model):
     __table_args__ = (db.UniqueConstraint('user_id', 'post_id', name='unique_user_post_like'),)
 
 # 检查文件类型是否允许
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+def allowed_file(filename, allowed_extensions=None):
+    if allowed_extensions is None:
+        allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'tiff'}
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in allowed_extensions
 
-# 文件上传处理
-@app.route('/api/upload', methods=['POST'])
+# 添加图片访问路由
+@app.route('/api/images/<filename>')
+def get_image(filename):
+    """直接提供图片文件，替代nginx的静态文件服务"""
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+# 添加额外的图片路由，直接处理/images/路径的请求
+@app.route('/images/<filename>')
+def get_image_direct(filename):
+    """直接提供图片文件，兼容/images/路径"""
+    print(f"通过/images/路径访问图片: {filename}")
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+@app.route('/api/uploads', methods=['POST'])
 def upload_file():
-    print("开始处理文件上传请求")
+    """处理文件上传请求"""
+    # 在函数内定义允许的文件扩展名
+    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'tiff'}
+    
+    print("====== 开始处理文件上传请求 =======")
+    
+    # 打印请求的详细信息，用于调试
     print("请求表单:", request.form)
     print("请求文件列表键:", list(request.files.keys()))
+    print("请求头:", dict(request.headers))
+    print("请求方法:", request.method)
+    print("请求URL:", request.url)
+    print("请求IP:", request.remote_addr)
     
-    # 检查是否有文件部分
-    if 'files[]' not in request.files:
-        if 'file' in request.files:
-            # 如果使用单文件上传
-            files = [request.files['file']]
-        else:
-            return jsonify({'error': '没有文件部分'}), 400
-    else:
-        # 使用多文件上传
-        files = request.files.getlist('files[]')
+    # 检查请求是否为JSON格式（Base64上传）
+    if request.is_json:
+        try:
+            json_data = request.get_json()
+            user_id = json_data.get('user_id')
+            if not user_id:
+                return jsonify({"error": "缺少用户ID"}), 400
+                
+            image_data = json_data.get('image_data')
+            if not image_data:
+                return jsonify({"error": "缺少图片数据"}), 400
+                
+            filename = json_data.get('filename', 'image.png')
+            
+            # 解码Base64图片数据
+            try:
+                # 如果数据包含Base64前缀，去除它
+                if ',' in image_data:
+                    image_data = image_data.split(',', 1)[1]
+                
+                # 解码Base64数据
+                image_binary = base64.b64decode(image_data)
+            except Exception as e:
+                print(f"Base64解码错误: {str(e)}")
+                return jsonify({"error": "图片数据格式错误"}), 400
+            
+            # 生成一个唯一的文件名
+            timestamp = int(time.time())
+            unique_id = uuid.uuid4().hex[:8]
+            name, ext = os.path.splitext(filename)
+            if not ext or ext == '.':
+                ext = '.png'  # 默认扩展名
+            safe_filename = f"{name}_{timestamp}_{unique_id}{ext}"
+            
+            # 保存到上传目录
+            backend_filepath = os.path.join(app.config['UPLOAD_FOLDER'], safe_filename)
+            
+            try:
+                with open(backend_filepath, 'wb') as f:
+                    f.write(image_binary)
+                
+                backend_filesize = os.path.getsize(backend_filepath)
+                print(f"后端文件大小: {backend_filesize} 字节")
+                
+                return jsonify({
+                    "message": "成功上传1张图片",
+                    "filenames": [safe_filename]
+                })
+            except Exception as e:
+                print(f"保存文件错误: {str(e)}")
+                return jsonify({"error": f"保存文件失败: {str(e)}"}), 500
+        except Exception as e:
+            print(f"JSON请求处理错误: {str(e)}")
+            return jsonify({"error": f"处理请求失败: {str(e)}"}), 500
     
+    # 常规表单文件上传处理
+    # 获取用户ID，这是必需的
     user_id = request.form.get('user_id')
+    if not user_id:
+        return jsonify({"error": "缺少用户ID"}), 400
+    
+    # 获取上传的文件
+    if 'file' in request.files:
+        # 单文件上传
+        print("使用单文件上传模式")
+        files = [request.files['file']]
+    elif 'files[]' in request.files:
+        # 多文件上传
+        files = request.files.getlist('files[]')
+        print(f"使用多文件上传模式, 找到 {len(files)} 个文件")
+    else:
+        # 查找任何其他可能的文件字段
+        file_keys = [key for key in request.files.keys()]
+        if file_keys:
+            first_key = file_keys[0]
+            if isinstance(request.files[first_key], list):
+                files = request.files.getlist(first_key)
+            else:
+                files = [request.files[first_key]]
+            print(f"使用自动检测的文件字段: {first_key}, 找到 {len(files)} 个文件")
+        else:
+            return jsonify({"error": "未找到上传的文件"}), 400
+    
+    # 打印文件信息
+    for i, file in enumerate(files):
+        print(f"文件 {i+1} 信息: 名称={file.filename}, 内容类型={file.content_type}")
+    
     print(f"用户ID: {user_id}, 文件数量: {len(files)}")
     
-    if not files or all(file.filename == '' for file in files):
-        return jsonify({'error': '没有选择文件'}), 400
-    
-    if user_id is None:
-        return jsonify({'error': '用户ID不能为空'}), 400
-    
-    valid_filenames = []
-    
-    # 限制最多上传9张图片
+    # 保存文件并收集文件名
+    saved_filenames = []
     for i, file in enumerate(files):
-        if i >= 9:
-            break
+        if file and file.filename:
+            print(f"处理文件 {i+1}: {file.filename}, 类型: {file.content_type}")
             
-        if file.filename == '':
-            continue
+            # 确保文件类型安全
+            filename = secure_filename(file.filename)
+            file_ext = os.path.splitext(filename)[1].lower()
             
-        if file and allowed_file(file.filename):
+            print(f"检查文件扩展名: {file_ext.lstrip('.')}, 允许的扩展名: {ALLOWED_EXTENSIONS}")
+            if file_ext.lstrip('.') not in ALLOWED_EXTENSIONS:
+                print(f"文件 {i+1}: 不允许的扩展名: {file_ext}")
+                continue
+            
+            # 生成唯一文件名
+            timestamp = int(time.time())
+            unique_id = uuid.uuid4().hex[:8]
+            name, ext = os.path.splitext(filename)
+            safe_filename = f"{name}_{timestamp}_{unique_id}{ext}"
+            
+            # 打印路径信息
+            print(f"当前工作目录: {os.getcwd()}")
+            print(f"上传目录: {app.config['UPLOAD_FOLDER']}")
+            
+            # 保存到后端目录
+            backend_filepath = os.path.join(app.config['UPLOAD_FOLDER'], safe_filename)
+            print(f"尝试保存文件到后端目录: {backend_filepath}")
+            
             try:
-                # 生成安全的文件名
-                filename = secure_filename(file.filename)
-                # 添加时间戳和随机字符串，确保文件名唯一
-                basename, extension = os.path.splitext(filename)
-                unique_filename = f"{basename}_{int(time.time())}_{secrets.token_hex(4)}{extension}"
+                file.save(backend_filepath)
+                backend_filesize = os.path.getsize(backend_filepath)
+                print(f"文件 {i+1} 保存成功: {safe_filename}")
+                print(f"后端文件大小: {backend_filesize} 字节")
                 
-                # 保存文件
-                file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
-                file.save(file_path)
-                
-                print(f"文件 {i+1} 保存成功: {unique_filename}")
-                valid_filenames.append(unique_filename)
+                saved_filenames.append(safe_filename)
             except Exception as e:
-                print(f"保存文件 {file.filename} 时出错: {str(e)}")
-        else:
-            print(f"文件 {file.filename} 类型不允许")
+                print(f"保存文件 {i+1} 失败: {str(e)}")
+                continue
     
-    if not valid_filenames:
-        return jsonify({'error': '没有有效的图片文件'}), 400
-        
-    print(f"成功上传 {len(valid_filenames)} 张图片")
-    return jsonify({
-        'message': f'成功上传{len(valid_filenames)}张图片', 
-        'filenames': valid_filenames
-    }), 200
+    if not saved_filenames:
+        return jsonify({"error": "未能成功保存任何文件"}), 400
+    
+    # 返回成功消息和文件名列表
+    print(f"成功上传 {len(saved_filenames)} 张图片")
+    response_data = {
+        "message": f"成功上传{len(saved_filenames)}张图片",
+        "filenames": saved_filenames
+    }
+    print(f"响应数据: {response_data}")
+    return jsonify(response_data)
 
 # 访问上传的文件
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+# 新增路由，通过/images路径访问图片
+@app.route('/images/<filename>')
+def serve_image(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 # 用户注册

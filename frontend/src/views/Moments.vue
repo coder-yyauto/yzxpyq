@@ -58,7 +58,7 @@
             <div :class="getImageGridClass(post.images.length)">
               <div v-for="(image, index) in post.images" :key="index" class="image-item">
                 <el-image 
-                  :src="'/uploads/' + image" 
+                  :src="'/images/' + image" 
                   fit="cover"
                   @click="previewImage(post.images, index)" 
                   class="post-image"
@@ -287,7 +287,7 @@ export default {
     },
     previewImage(images, index) {
       // 添加前缀以获取完整URL
-      const fullImageUrl = `/uploads/${images[index]}`
+      const fullImageUrl = `/images/${images[index]}`
       this.$msgbox({
         title: '图片预览',
         message: this.$createElement('img', {

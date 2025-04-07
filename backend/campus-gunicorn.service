@@ -1,0 +1,21 @@
+[Unit]
+Description=Campus Social Platform Gunicorn
+After=network.target
+
+[Service]
+User=yzxuser
+Group=yzxuser
+WorkingDirectory=/home/yzxuser/yzxpyq/backend
+Environment="PATH=/home/yzxuser/micromamba/envs/yzx/bin"
+ExecStart=/home/yzxuser/micromamba/envs/yzx/bin/gunicorn -c gunicorn_config.py app:app
+
+# 自动重启
+Restart=on-failure
+RestartSec=5s
+
+# 日志
+StandardOutput=append:/home/yzxuser/logs/campus_stdout.log
+StandardError=append:/home/yzxuser/logs/campus_stderr.log
+
+[Install]
+WantedBy=multi-user.target 

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>检查用户信息</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #409EFF;
+        }
+        pre {
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            overflow: auto;
+            white-space: pre-wrap;
+        }
+        button {
+            background-color: #409EFF;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #66b1ff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>当前用户信息</h1>
+        
+        <button id="refreshBtn">刷新信息</button>
+        <button id="addActiveBtn">添加is_active=true</button>
+        <button id="logoutBtn">清除登录信息</button>
+        
+        <h2>localStorage 中的用户信息</h2>
+        <pre id="userInfo">正在加载...</pre>
+        
+        <h2>关键字段检查</h2>
+        <pre id="fieldCheck">正在检查...</pre>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            displayUserInfo();
+            
+            document.getElementById('refreshBtn').addEventListener('click', displayUserInfo);
+            document.getElementById('addActiveBtn').addEventListener('click', addActiveField);
+            document.getElementById('logoutBtn').addEventListener('click', clearUserInfo);
+        });
+        
+        function displayUserInfo() {
+            const userInfoEl = document.getElementById('userInfo');
+            const fieldCheckEl = document.getElementById('fieldCheck');
+            
+            try {
+                const userStr = localStorage.getItem('user');
+                userInfoEl.textContent = userStr || '未找到用户信息';
+                
+                if (userStr) {
+                    const user = JSON.parse(userStr);
+                    let checkResult = '';
+                    
+                    // 检查关键字段
+                    checkResult += '用户ID(id): ' + (user.id ? '✅ 存在 - ' + user.id : '❌ 缺失') + '\n';
+                    checkResult += '用户名(username): ' + (user.username ? '✅ 存在 - ' + user.username : '❌ 缺失') + '\n';
+                    checkResult += '真实姓名(real_name): ' + (user.real_name ? '✅ 存在 - ' + user.real_name : '❌ 缺失') + '\n';
+                    checkResult += '是否教师(is_teacher): ' + (user.is_teacher !== undefined ? '✅ 存在 - ' + user.is_teacher : '❌ 缺失') + '\n';
+                    checkResult += '是否管理员(is_admin): ' + (user.is_admin !== undefined ? '✅ 存在 - ' + user.is_admin : '❌ 缺失') + '\n';
+                    checkResult += '是否激活(is_active): ' + (user.is_active !== undefined ? '✅ 存在 - ' + user.is_active : '❌ 缺失') + '\n';
+                    
+                    fieldCheckEl.textContent = checkResult;
+                } else {
+                    fieldCheckEl.textContent = '未找到用户信息，无法检查字段。';
+                }
+            } catch (e) {
+                userInfoEl.textContent = '解析用户信息时出错: ' + e.message;
+                fieldCheckEl.textContent = '字段检查失败。';
+            }
+        }
+        
+        function addActiveField() {
+            try {
+                const userStr = localStorage.getItem('user');
+                if (userStr) {
+                    const user = JSON.parse(userStr);
+                    // 添加或修改is_active字段
+                    user.is_active = true;
+                    // 保存回localStorage
+                    localStorage.setItem('user', JSON.stringify(user));
+                    // 更新显示
+                    displayUserInfo();
+                    alert('已成功添加is_active=true字段！');
+                } else {
+                    alert('未找到用户信息，无法添加字段。');
+                }
+            } catch (e) {
+                alert('添加字段时出错: ' + e.message);
+            }
+        }
+        
+        function clearUserInfo() {
+            localStorage.removeItem('user');
+            displayUserInfo();
+            alert('已清除用户信息！');
+        }
+    </script>
+</body>
+</html> 

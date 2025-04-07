@@ -1,0 +1,61 @@
+server {
+    listen 443 ssl;
+    server_name shiny.imwork.net;
+
+    ssl_certificate     /etc/nginx/ssl/shiny.imwork.net.crt;
+    ssl_certificate_key /etc/nginx/ssl/shiny.imwork.net.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+
+    access_log /var/log/nginx/shiny.access.log;
+    error_log /var/log/nginx/shiny.error.log debug;  # 增加debug级别日志
+    
+    # 设置较大的客户端请求体积限制，适合文件上传
+    client_max_body_size 10M;
+    
+    # 前端静态资源
+    location / {
+        root /opt/dist;
+        try_files $uri $uri/ /index.html;
+        expires 1d;
+        add_header Cache-Control "public";
+    }
+    
+    # 所有API请求，包括图片服务
+    location /api/ {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300;
+        proxy_connect_timeout 300;
+        proxy_send_timeout 300;
+        
+        # 允许更大的请求体
+        client_max_body_size 10M;
+    }
+    
+    # 图片请求API，由后端处理
+    location /images/ {
+        # 重写URL并代理到后端
+        rewrite ^/images/(.*)$ /api/images/$1 break;
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # 图片缓存设置
+        proxy_cache_valid 200 7d;
+        expires 7d;
+        add_header Cache-Control "public";
+    }
+}
+
+server {
+    listen 80;
+    server_name shiny.imwork.net;
+    return 301 https://$host$request_uri;
+}
+}

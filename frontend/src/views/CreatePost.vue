@@ -26,6 +26,8 @@
             :on-exceed="handleExceed"
             :on-change="handleFileChange"
             multiple
+            name="files[]"
+            accept="image/jpeg,image/png,image/gif,image/webp,image/bmp,image/svg+xml,image/tiff"
           >
             <i class="el-icon-plus"></i>
             <div slot="tip" class="el-upload__tip">支持JPG/PNG/GIF/WEBP/BMP/SVG/TIFF文件，最多可上传9张图片</div>
@@ -50,6 +52,7 @@
 
 <script>
 import api from '@/api'
+import axios from 'axios'
 
 export default {
   name: 'CreatePost',
@@ -77,9 +80,9 @@ export default {
     if (storedUser) {
       this.user = JSON.parse(storedUser)
       
-      // 验证是否为教师身份
-      if (!this.user.is_teacher) {
-        this.$message.error('只有教师才能发布动态')
+      // 检查用户是否被禁用
+      if (!this.user.is_active) {
+        this.$message.error('您的账号已被禁用，请联系管理员')
         this.$router.push('/moments')
         return
       }
@@ -122,6 +125,8 @@ export default {
     async handleFileChange(file, fileList) {
       // 将当前文件列表保存到组件状态中
       this.fileList = fileList
+      console.log('文件列表已更新，当前文件数量:', this.fileList.length)
+      console.log('新添加的文件:', file.name, file.size, file.type)
       
       // 我们将在submitPost方法中统一上传所有文件
     },
@@ -130,80 +135,121 @@ export default {
         await this.$refs.postForm.validate()
         
         this.submitting = true
+        console.log("开始发布流程")
         
         // 如果有文件要上传
         let imageFilenames = ''
         if (this.fileList.length > 0) {
-          // 构造FormData，包含所有文件
+          // 显示上传提示
+          this.$message.info(`正在上传${this.fileList.length}张图片，请稍候...`)
+          
+          // 创建简单的FormData对象
           const formData = new FormData()
           
-          // 添加所有文件到formData
-          this.fileList.forEach(file => {
-            if (file.raw) {
-              formData.append('files[]', file.raw)
-              console.log('添加文件到表单:', file.name, file.size)
-            } else {
-              console.warn('文件缺少raw属性:', file)
-            }
-          })
-          
+          // 添加用户ID
           formData.append('user_id', this.user.id)
           
-          // 调试信息
-          console.log('上传文件数量:', this.fileList.length)
-          for (let pair of formData.entries()) {
-            console.log('表单数据:', pair[0], typeof pair[1])
+          // 尝试多种方式提取文件对象
+          let uploadedCount = 0
+          
+          for (let i = 0; i < this.fileList.length; i++) {
+            const file = this.fileList[i]
+            let fileObj = null
+            
+            // 检查raw属性（Element UI存储原始文件的位置）
+            if (file.raw) {
+              fileObj = file.raw
+              console.log(`使用raw属性获取文件 ${i+1}: ${file.name}`)
+            }
+            // 检查originFileObj属性（某些UI库使用）
+            else if (file.originFileObj) {
+              fileObj = file.originFileObj
+              console.log(`使用originFileObj属性获取文件 ${i+1}: ${file.name}`)
+            }
+            // 检查是否本身就是File对象
+            else if (file instanceof File || file instanceof Blob) {
+              fileObj = file
+              console.log(`文件 ${i+1} 本身就是File对象: ${file.name}`)
+            }
+            
+            // 如果我们成功获取了文件对象
+            if (fileObj) {
+              formData.append('files[]', fileObj)
+              uploadedCount++
+              console.log(`成功添加文件 ${i+1} 到formData: ${file.name}`)
+            } else {
+              console.error(`无法获取文件 ${i+1} 的原始对象: ${file.name}`)
+            }
           }
           
+          if (uploadedCount === 0) {
+            this.$message.error('无法处理任何文件，请重新选择图片')
+            this.submitting = false
+            return
+          }
+          
+          // 检查FormData对象是否有效
+          console.log(`预计上传 ${uploadedCount} 张图片`)
+          
           try {
-            console.log('开始上传图片...')
-            const uploadResponse = await api.post('/upload', formData, {
-              headers: {
-                'Content-Type': 'multipart/form-data'
-              }
+            console.log('发送上传请求...')
+            
+            // 使用fetch发送上传请求
+            const response = await fetch('/api/uploads', {
+              method: 'POST',
+              body: formData
             })
             
-            console.log('上传响应:', uploadResponse.data)
+            // 检查响应状态
+            if (!response.ok) {
+              const errorText = await response.text()
+              throw new Error(`上传失败 (${response.status}): ${errorText}`)
+            }
             
-            if (uploadResponse.data && uploadResponse.data.filenames) {
-              // 保存返回的文件名列表
-              imageFilenames = uploadResponse.data.filenames.join(',')
-              this.$message.success(uploadResponse.data.message || '图片上传成功')
-            }
-          } catch (error) {
-            console.error('上传图片失败:', error)
-            if (error.response) {
-              console.error('错误响应:', error.response.status, error.response.data)
-            }
-            if (error.response && error.response.data && error.response.data.error) {
-              this.$message.error(error.response.data.error)
-              // 不阻止继续发布，可能有些图片上传成功了
+            // 解析JSON响应
+            const data = await response.json()
+            console.log('上传响应:', data)
+            
+            if (data && data.filenames && data.filenames.length > 0) {
+              imageFilenames = data.filenames.join(',')
+              this.$message.success(`图片上传成功: ${data.message || ''}`)
             } else {
-              this.$message.error('上传图片失败，但将继续发布文字内容')
+              throw new Error('服务器返回的响应缺少文件名')
             }
+          } catch (uploadError) {
+            console.error('图片上传失败:', uploadError)
+            this.$message.error(`图片上传失败: ${uploadError.message}`)
+            this.submitting = false
+            return
           }
         }
         
-        // 发布动态，包含已上传的图片文件名
-        const response = await api.post('/posts', {
-          content: this.postForm.content,
-          images: imageFilenames,
-          user_id: this.user.id,
-          disable_comments: this.postForm.disable_comments
-        })
-        
-        this.$message.success(response.data.message || '发布成功')
-        this.$router.push('/moments')
-      } catch (error) {
-        console.error('发布失败:', error)
-        if (error.response && error.response.data && error.response.data.error) {
-          this.$message.error(error.response.data.error)
-        } else if (typeof error === 'string') {
-          // Form validation error
-          return
-        } else {
-          this.$message.error('发布失败，请稍后再试')
+        // 发布动态
+        try {
+          console.log('正在发布动态...')
+          console.log('内容:', this.postForm.content)
+          console.log('图片:', imageFilenames)
+          
+          const postResponse = await api.post('/posts', {
+            content: this.postForm.content,
+            images: imageFilenames,
+            user_id: this.user.id,
+            disable_comments: this.postForm.disable_comments
+          });
+          
+          this.$message.success(postResponse.data.message || '发布成功');
+          this.$router.push('/moments');
+        } catch (postError) {
+          console.error('发布失败:', postError)
+          if (postError.response && postError.response.data && postError.response.data.error) {
+            this.$message.error(postError.response.data.error)
+          } else {
+            this.$message.error(`发布失败: ${postError.message}`)
+          }
         }
+      } catch (error) {
+        console.error('表单验证失败:', error)
+        // 表单验证错误不需要显示提示
       } finally {
         this.submitting = false
       }

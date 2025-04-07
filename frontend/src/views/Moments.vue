@@ -4,6 +4,13 @@
     <div class="top-nav">
       <h1>校园动态</h1>
       <div class="user-info">
+        <el-switch
+          v-model="useExactTime"
+          active-text="精确时间"
+          inactive-text="相对时间"
+          @change="updateTimeFormat"
+          style="margin-right: 15px;"
+        ></el-switch>
         <span :class="{'teacher-name': user.is_teacher}">{{ user.real_name }}</span>
         <el-dropdown trigger="click" @command="handleCommand">
           <span class="el-dropdown-link">
@@ -17,7 +24,7 @@
     </div>
     
     <div class="action-btns">
-      <el-button v-if="user.is_teacher" type="primary" @click="$router.push('/create')">发布新动态</el-button>
+      <el-button type="primary" @click="$router.push('/create')">发布新动态</el-button>
     </div>
     
     <div v-if="loading" class="loading-container">
@@ -25,7 +32,7 @@
     </div>
     
     <div v-else-if="posts.length === 0" class="empty-container">
-      <p>暂无动态，{{ user.is_teacher ? '去发布一条吧！' : '请等待教师发布动态' }}</p>
+      <p>暂无动态，去发布一条吧！</p>
     </div>
     
     <div v-else class="posts-container">
@@ -58,7 +65,7 @@
             <div :class="getImageGridClass(post.images.length)">
               <div v-for="(image, index) in post.images" :key="index" class="image-item">
                 <el-image 
-                  :src="'/uploads/' + image" 
+                  :src="'/images/' + image" 
                   fit="cover"
                   @click="previewImage(post.images, index)" 
                   class="post-image"
@@ -160,7 +167,7 @@
 
 <script>
 import api from '@/api'
-import { formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow, format, addHours } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 
 export default {
@@ -171,6 +178,7 @@ export default {
       posts: [],
       user: {},
       commentContent: {},
+      useExactTime: false, // 控制是否使用精确时间
       replyInfo: {
         active: false,
         postId: null,
@@ -186,6 +194,12 @@ export default {
     // 从本地存储获取用户信息
     const storedUser = localStorage.getItem('user')
     console.log('Moments - 本地存储中的用户字符串:', storedUser)
+    
+    // 读取用户的时间格式首选项
+    const timeFormat = localStorage.getItem('timeFormat')
+    if (timeFormat === 'exact') {
+      this.useExactTime = true
+    }
     
     if (!storedUser) {
       console.error('Moments - 本地存储中没有用户信息')
@@ -271,11 +285,48 @@ export default {
     },
     formatTime(timeString) {
       try {
+        // 解析ISO格式的时间字符串
         const date = new Date(timeString)
-        return formatDistanceToNow(date, { addSuffix: true, locale: zhCN })
+        
+        // 检查时区偏移
+        const utcHoursDiff = date.getTimezoneOffset() / 60
+        console.log('原始时间:', timeString, '解析后时间:', date.toISOString(), '时区差异:', utcHoursDiff)
+        
+        // 对时间进行调整（如果需要）
+        // 注意：我们添加了时区调整，因为可能存在UTC与北京时间的差异
+        const adjustedDate = this.adjustTimeZone(date)
+        
+        if (this.useExactTime) {
+          // 精确的时间格式：年-月-日 时:分
+          return format(adjustedDate, 'yyyy-MM-dd HH:mm', { locale: zhCN })
+        } else {
+          // 相对时间格式：几小时前
+          return formatDistanceToNow(adjustedDate, { addSuffix: true, locale: zhCN })
+        }
       } catch (e) {
+        console.error('时间格式化错误:', e, timeString)
         return timeString
       }
+    },
+    
+    // 辅助函数：调整时区（如果需要）
+    adjustTimeZone(date) {
+      // 获取服务器时间与本地时间的时区偏移
+      const timezoneOffset = date.getTimezoneOffset() / 60
+      
+      // 强制直接使用中国标准时间 (UTC+8)
+      // 首先判断日期是否在中国的正常时间范围内
+      const hours = date.getHours()
+      const needsAdjustment = hours < 8 && Math.abs(timezoneOffset) >= 5
+      
+      if (needsAdjustment) {
+        console.log('检测到可能的UTC时间，小时数为:', hours, '，进行时区调整')
+        // 如果小时数小于8且时区偏移很大，很可能是UTC时间需要转换为中国时间
+        return addHours(date, 8)
+      }
+      
+      // 如果没有检测到问题，则返回原始日期
+      return date
     },
     getImageGridClass(count) {
       if (count === 1) return 'image-grid-1'
@@ -287,7 +338,7 @@ export default {
     },
     previewImage(images, index) {
       // 添加前缀以获取完整URL
-      const fullImageUrl = `/uploads/${images[index]}`
+      const fullImageUrl = `/images/${images[index]}`
       this.$msgbox({
         title: '图片预览',
         message: this.$createElement('img', {
@@ -493,6 +544,12 @@ export default {
           this.$message.error('修改评论设置失败')
         }
       }
+    },
+    updateTimeFormat() {
+      // 保存用户的时间格式首选项
+      localStorage.setItem('timeFormat', this.useExactTime ? 'exact' : 'relative')
+      // 刷新动态以更新时间显示
+      this.fetchPosts()
     }
   }
 }

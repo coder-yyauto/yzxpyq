@@ -14,12 +14,12 @@ module.exports = {
           '^/api': '/api'
         }
       },
-      '/uploads': {
+      '/images': {
         target: 'http://localhost:5000',
         changeOrigin: true,
         secure: false,
         pathRewrite: {
-          '^/uploads': '/uploads'
+          '^/images': '/images'
         }
       }
     },

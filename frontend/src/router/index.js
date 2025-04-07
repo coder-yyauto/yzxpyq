@@ -32,7 +32,7 @@ const routes = [
     path: '/create',
     name: 'CreatePost',
     component: CreatePost,
-    meta: { requiresAuth: true, teacherOnly: true }
+    meta: { requiresAuth: true }
   }
 ]
 

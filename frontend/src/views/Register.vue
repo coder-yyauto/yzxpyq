@@ -1,28 +1,39 @@
 <template>
   <div class="register-container">
-    <h1>注册账号</h1>
-    <el-form :model="form" :rules="rules" ref="form" label-width="80px" class="register-form">
-      <el-form-item label="用户类型">
+    <h1>用户注册</h1>
+    
+    <!-- 加载中 -->
+    <div v-if="loading" class="loading-container">
+      <el-skeleton :rows="6" animated />
+    </div>
+    
+    <el-steps v-if="registerEnabled" :active="currentStep" finish-status="success" simple style="margin-bottom: 20px;" class="register-steps">
+      <el-step title="填写信息"></el-step>
+      <el-step title="注册成功"></el-step>
+    </el-steps>
+    
+    <el-form v-if="!loading && currentStep === 0 && registerEnabled" :model="form" :rules="rules" ref="form" label-width="100px" class="register-form">
+      <el-form-item label="登录账号" prop="username">
+        <el-input v-model="form.username" placeholder="请输入登录账号"></el-input>
+      </el-form-item>
+      
+      <el-form-item label="设置密码" prop="password">
+        <el-input type="password" v-model="form.password" placeholder="请输入密码"></el-input>
+      </el-form-item>
+      
+      <el-form-item label="确认密码" prop="confirm_password">
+        <el-input type="password" v-model="form.confirm_password" placeholder="请再次输入密码"></el-input>
+      </el-form-item>
+      
+      <el-form-item label="姓名昵称" prop="real_name">
+        <el-input v-model="form.real_name" placeholder="请输入姓名昵称"></el-input>
+      </el-form-item>
+      
+      <el-form-item label="身份" prop="is_teacher">
         <el-radio-group v-model="form.is_teacher">
           <el-radio :label="false">学生</el-radio>
           <el-radio :label="true">教师</el-radio>
         </el-radio-group>
-      </el-form-item>
-      
-      <el-form-item label="用户名" prop="username">
-        <el-input v-model="form.username" placeholder="请输入用户名"></el-input>
-      </el-form-item>
-      
-      <el-form-item label="密码" prop="password">
-        <el-input type="password" v-model="form.password" placeholder="请输入密码"></el-input>
-      </el-form-item>
-      
-      <el-form-item label="确认密码" prop="confirmPassword">
-        <el-input type="password" v-model="form.confirmPassword" placeholder="请再次输入密码"></el-input>
-      </el-form-item>
-      
-      <el-form-item label="真实姓名" prop="real_name">
-        <el-input v-model="form.real_name" placeholder="请输入真实姓名"></el-input>
       </el-form-item>
       
       <!-- 教师注册码 -->
@@ -50,6 +61,19 @@
         <el-button @click="$router.push('/login')" class="back-btn">返回登录</el-button>
       </el-form-item>
     </el-form>
+    
+    <div v-if="!loading && !registerEnabled" class="register-disabled">
+      <i class="el-icon-warning-outline warning-icon"></i>
+      <h2>注册功能已关闭</h2>
+      <p>管理员已暂时关闭注册功能，请联系管理员老师。</p>
+      <el-button type="primary" class="back-btn" @click="$router.push('/login')">返回登录</el-button>
+    </div>
+    
+    <div v-if="!loading && currentStep === 1" class="success-container">
+      <i class="el-icon-success success-icon"></i>
+      <h2>注册成功</h2>
+      <p>即将自动跳转到动态页面...</p>
+    </div>
   </div>
 </template>
 
@@ -71,10 +95,13 @@ export default {
     }
     
     return {
+      currentStep: 0,
+      registerEnabled: true,
+      loading: true,
       form: {
         username: '',
         password: '',
-        confirmPassword: '',
+        confirm_password: '',
         real_name: '',
         is_teacher: false,
         register_code: '',
@@ -83,18 +110,21 @@ export default {
       },
       rules: {
         username: [
-          { required: true, message: '请输入用户名', trigger: 'blur' },
-          { min: 3, max: 20, message: '长度在 3 到 20 个字符', trigger: 'blur' }
+          { required: true, message: '请输入登录账号', trigger: 'blur' },
+          { min: 6, max: 16, message: '长度在6到16个字符', trigger: 'blur' },
+          { pattern: /^[a-zA-Z]/, message: '必须以字母开头', trigger: 'blur' }
         ],
         password: [
           { required: true, message: '请输入密码', trigger: 'blur' },
-          { min: 6, message: '密码至少6个字符', trigger: 'blur' }
+          { min: 7, max: 20, message: '长度在7到20个字符', trigger: 'blur' },
+          { pattern: /^(?=.*[a-zA-Z])(?=.*\d)/, message: '必须包含字母和数字', trigger: 'blur' }
         ],
-        confirmPassword: [
-          { required: true, validator: validatePass, trigger: 'blur' }
+        confirm_password: [
+          { required: true, message: '请再次输入密码', trigger: 'blur' },
+          { validator: validatePass, trigger: 'blur' }
         ],
         real_name: [
-          { required: true, message: '请输入真实姓名', trigger: 'blur' }
+          { required: true, message: '请输入姓名昵称', trigger: 'blur' }
         ],
         register_code: [
           { required: true, message: '请输入教师注册码', trigger: 'blur' }
@@ -108,7 +138,29 @@ export default {
       }
     }
   },
+  created() {
+    this.currentStep = 0;
+    console.log('Register组件已创建，currentStep =', this.currentStep);
+    this.checkRegisterStatus()
+  },
   methods: {
+    async checkRegisterStatus() {
+      this.loading = true
+      try {
+        const response = await api.get('/system/config', {
+          params: { key: 'register_enabled' }
+        })
+        if (response.data && response.data.register_enabled) {
+          this.registerEnabled = response.data.register_enabled.toLowerCase() === 'true'
+        }
+      } catch (error) {
+        console.error('获取注册状态失败:', error)
+        // 默认允许注册
+        this.registerEnabled = true
+      } finally {
+        this.loading = false
+      }
+    },
     submitForm(formName) {
       this.$refs[formName].validate(async (valid) => {
         if (valid) {
@@ -159,8 +211,14 @@ export default {
             const savedUser = JSON.parse(localStorage.getItem('user') || '{}')
             console.log('从本地存储读取的用户信息:', savedUser)
             
-            this.$message.success('注册成功')
-            this.$router.push('/moments')
+            // 设置步骤为注册成功
+            this.currentStep = 1
+            
+            // 3秒后自动跳转到动态页
+            setTimeout(() => {
+              this.$message.success('注册成功')
+              this.$router.push('/moments')
+            }, 1500)
           } catch (error) {
             console.error('注册失败:', error)
             if (error.response && error.response.data && error.response.data.error) {
@@ -212,6 +270,53 @@ h1 {
 .back-btn {
   width: 48%;
   margin-left: 4%;
+}
+
+.success-container {
+  text-align: center;
+  padding: 30px;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+}
+
+.success-icon {
+  font-size: 60px;
+  color: #67C23A;
+  margin-bottom: 20px;
+}
+
+.register-disabled {
+  text-align: center;
+  padding: 30px;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+}
+
+.warning-icon {
+  font-size: 60px;
+  color: #E6A23C;
+  margin-bottom: 20px;
+}
+
+.loading-container {
+  width: 100%;
+  padding: 20px;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  margin-bottom: 20px;
+}
+
+/* 防止步骤文字折行 */
+.register-steps {
+  width: 100%;
+}
+
+.register-steps .el-step__title {
+  white-space: nowrap;
+  font-size: 14px;
 }
 
 @media screen and (max-width: 428px) {

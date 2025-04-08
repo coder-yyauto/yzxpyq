@@ -4,6 +4,9 @@ import Login from '../views/Login.vue'
 import Register from '../views/Register.vue'
 import Moments from '../views/Moments.vue'
 import CreatePost from '../views/CreatePost.vue'
+import UserProfile from '../views/UserProfile.vue'
+import Admin from '../views/Admin.vue'
+import FirstLogin from '../views/FirstLogin.vue'
 
 Vue.use(VueRouter)
 
@@ -33,6 +36,24 @@ const routes = [
     name: 'CreatePost',
     component: CreatePost,
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/profile',
+    name: 'UserProfile',
+    component: UserProfile,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/admin',
+    name: 'Admin',
+    component: Admin,
+    meta: { requiresAuth: true, adminOnly: true }
+  },
+  {
+    path: '/first-login',
+    name: 'FirstLogin',
+    component: FirstLogin,
+    meta: { requiresAuth: true }
   }
 ]
 
@@ -52,6 +73,7 @@ router.beforeEach((to, from, next) => {
   
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth)
   const teacherOnly = to.matched.some(record => record.meta.teacherOnly)
+  const adminOnly = to.matched.some(record => record.meta.adminOnly)
   
   console.log('路由守卫 - 当前路由是否需要认证:', requiresAuth, '路由路径:', to.path)
   
@@ -61,6 +83,13 @@ router.beforeEach((to, from, next) => {
   } else if (teacherOnly && !user.is_teacher) {
     console.log('路由守卫 - 需要教师权限但用户不是教师，重定向到动态页')
     next('/moments')
+  } else if (adminOnly && !user.is_admin) {
+    console.log('路由守卫 - 需要管理员权限但用户不是管理员，重定向到动态页')
+    next('/moments')
+  } else if (user.id && user.is_first_login && to.path !== '/first-login') {
+    // 首次登录用户重定向到首次登录页面
+    console.log('路由守卫 - 首次登录用户重定向到首次登录页面')
+    next('/first-login')
   } else {
     console.log('路由守卫 - 允许继续导航')
     next()

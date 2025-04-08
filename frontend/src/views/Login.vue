@@ -2,12 +2,12 @@
   <div class="login-container">
     <h1>校园社交平台</h1>
     <el-form :model="form" :rules="rules" ref="form" label-width="80px" class="login-form">
-      <el-form-item label="用户名" prop="username">
-        <el-input v-model="form.username" placeholder="请输入用户名"></el-input>
+      <el-form-item label="登录账号" prop="username">
+        <el-input v-model="form.username" placeholder="请输入登录账号"></el-input>
       </el-form-item>
       
-      <el-form-item label="密码" prop="password">
-        <el-input type="password" v-model="form.password" placeholder="请输入密码" @keyup.enter.native="submitForm('form')"></el-input>
+      <el-form-item label="登录密码" prop="password">
+        <el-input type="password" v-model="form.password" placeholder="请输入登录密码" @keyup.enter.native="submitForm('form')"></el-input>
       </el-form-item>
       
       <el-form-item>
@@ -31,10 +31,10 @@ export default {
       },
       rules: {
         username: [
-          { required: true, message: '请输入用户名', trigger: 'blur' }
+          { required: true, message: '请输入登录账号', trigger: 'blur' }
         ],
         password: [
-          { required: true, message: '请输入密码', trigger: 'blur' }
+          { required: true, message: '请输入登录密码', trigger: 'blur' }
         ]
       }
     }
@@ -63,6 +63,10 @@ export default {
             localStorage.setItem('user', JSON.stringify(response.data))
             console.log('用户信息已保存到本地存储')
             
+            // 保存用户信息到Vuex
+            this.$store.commit('user/setCurrentUser', response.data)
+            console.log('用户信息已保存到Vuex状态')
+            
             // 再次确认用户信息已正确保存
             const savedUser = JSON.parse(localStorage.getItem('user') || '{}')
             console.log('从本地存储读取的用户信息:', savedUser)
@@ -74,10 +78,16 @@ export default {
             }
             
             // 显示欢迎消息
-            this.$message.success(`欢迎回来，${response.data.real_name}!`)
+            this.$message.success(`欢迎回来，${response.data.real_name || response.data.username}!`)
             
-            // 跳转到动态页面
-            this.$router.push('/moments')
+            // 判断是否首次登录
+            if (response.data.is_first_login) {
+              console.log('首次登录用户，重定向到首次登录页面')
+              this.$router.push('/first-login')
+            } else {
+              // 普通登录，跳转到动态页面
+              this.$router.push('/moments')
+            }
           } catch (error) {
             console.error('登录失败:', error)
             if (error.response && error.response.data && error.response.data.error) {

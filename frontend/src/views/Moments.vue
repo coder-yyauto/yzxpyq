@@ -17,7 +17,9 @@
             <i class="el-icon-arrow-down"></i>
           </span>
           <el-dropdown-menu slot="dropdown">
-            <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+            <el-dropdown-item command="profile">个人资料</el-dropdown-item>
+            <el-dropdown-item command="admin" v-if="user.is_admin">管理控制台</el-dropdown-item>
+            <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
           </el-dropdown-menu>
         </el-dropdown>
       </div>
@@ -232,6 +234,10 @@ export default {
     handleCommand(command) {
       if (command === 'logout') {
         this.logout()
+      } else if (command === 'profile') {
+        this.$router.push('/profile')
+      } else if (command === 'admin') {
+        this.$router.push('/admin')
       }
     },
     logout() {

@@ -1,6 +1,6 @@
 <template>
   <div class="login-container">
-    <h1>校园社交平台</h1>
+    <h1>朋友圈模拟平台</h1>
     <el-form :model="form" :rules="rules" ref="form" label-width="80px" class="login-form">
       <el-form-item label="登录账号" prop="username">
         <el-input v-model="form.username" placeholder="请输入登录账号"></el-input>

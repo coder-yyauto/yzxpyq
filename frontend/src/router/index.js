@@ -86,8 +86,8 @@ router.beforeEach((to, from, next) => {
   } else if (adminOnly && !user.is_admin) {
     console.log('路由守卫 - 需要管理员权限但用户不是管理员，重定向到动态页')
     next('/moments')
-  } else if (user.id && user.is_first_login && to.path !== '/first-login') {
-    // 首次登录用户重定向到首次登录页面
+  } else if (user.id && user.is_first_login && to.path !== '/first-login' && to.path !== '/login') {
+    // 首次登录用户重定向到首次登录页面，但排除登录页面避免循环
     console.log('路由守卫 - 首次登录用户重定向到首次登录页面')
     next('/first-login')
   } else {

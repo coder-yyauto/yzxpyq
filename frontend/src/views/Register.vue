@@ -124,7 +124,7 @@ export default {
           { validator: validatePass, trigger: 'blur' }
         ],
         real_name: [
-          { required: true, message: '请输入姓名昵称', trigger: 'blur' }
+          { max: 5, message: '姓名昵称长度不能超过5个汉字', trigger: 'blur' }
         ],
         register_code: [
           { required: true, message: '请输入教师注册码', trigger: 'blur' }

@@ -11,7 +11,6 @@ import json
 import shutil
 import base64
 import uuid
-import random
 
 # 创建一个函数生成北京时间（UTC+8）而不是UTC
 def beijing_time():
@@ -75,9 +74,8 @@ class Post(db.Model):
     content = db.Column(db.Text, nullable=False)
     images = db.Column(db.String(500), nullable=True)  # 存储图片文件名，用逗号分隔
     created_at = db.Column(db.DateTime, default=beijing_time)
-    comments_disabled = db.Column(db.Boolean, default=False)  # 是否禁止评论
+    disable_comments = db.Column(db.Boolean, default=False)  # 是否禁止评论
     user = db.relationship('User', backref=db.backref('posts', lazy='dynamic'))
-    comments = db.relationship('Comment', backref='post', lazy='dynamic', cascade="all, delete-orphan")
 
 # 评论模型
 class Comment(db.Model):
@@ -89,6 +87,7 @@ class Comment(db.Model):
     parent_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=True)  # 父评论ID
     replied_to_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # 被回复用户ID
     user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('comments', lazy='dynamic'))
+    post = db.relationship('Post', backref=db.backref('comments', lazy='dynamic', cascade='all, delete-orphan'))
     parent = db.relationship('Comment', remote_side=[id], backref=db.backref('replies', lazy='dynamic'), uselist=False)
     replied_to_user = db.relationship('User', foreign_keys=[replied_to_user_id])
 
@@ -142,22 +141,15 @@ def allowed_file(filename, allowed_extensions=None):
 # 添加图片访问路由
 @app.route('/api/images/<filename>')
 def get_image(filename):
-    """统一提供图片文件访问"""
-    try:
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        if not os.path.exists(file_path):
-            return jsonify({"error": "图片不存在"}), 404
-            
-        # 获取文件大小
-        file_size = os.path.getsize(file_path)
-        
-        # 设置正确的Content-Length头
-        response = send_from_directory(app.config['UPLOAD_FOLDER'], filename)
-        response.headers['Content-Length'] = file_size
-        return response
-    except Exception as e:
-        print(f"访问图片出错: {str(e)}")
-        return jsonify({"error": "访问图片失败"}), 500
+    """直接提供图片文件，替代nginx的静态文件服务"""
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+# 添加额外的图片路由，直接处理/images/路径的请求
+@app.route('/images/<filename>')
+def get_image_direct(filename):
+    """直接提供图片文件，兼容/images/路径"""
+    print(f"通过/images/路径访问图片: {filename}")
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route('/api/uploads', methods=['POST'])
 def upload_file():
@@ -165,7 +157,7 @@ def upload_file():
     # 在函数内定义允许的文件扩展名
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'tiff'}
     
-    print("\n====== 开始处理文件上传请求 =======")
+    print("====== 开始处理文件上传请求 =======")
     
     # 打印请求的详细信息，用于调试
     print("请求表单:", request.form)
@@ -175,10 +167,65 @@ def upload_file():
     print("请求URL:", request.url)
     print("请求IP:", request.remote_addr)
     
+    # 检查请求是否为JSON格式（Base64上传）
+    if request.is_json:
+        try:
+            json_data = request.get_json()
+            user_id = json_data.get('user_id')
+            if not user_id:
+                return jsonify({"error": "缺少用户ID"}), 400
+                
+            image_data = json_data.get('image_data')
+            if not image_data:
+                return jsonify({"error": "缺少图片数据"}), 400
+                
+            filename = json_data.get('filename', 'image.png')
+            
+            # 解码Base64图片数据
+            try:
+                # 如果数据包含Base64前缀，去除它
+                if ',' in image_data:
+                    image_data = image_data.split(',', 1)[1]
+                
+                # 解码Base64数据
+                image_binary = base64.b64decode(image_data)
+            except Exception as e:
+                print(f"Base64解码错误: {str(e)}")
+                return jsonify({"error": "图片数据格式错误"}), 400
+            
+            # 生成一个唯一的文件名
+            timestamp = int(time.time())
+            unique_id = uuid.uuid4().hex[:8]
+            name, ext = os.path.splitext(filename)
+            if not ext or ext == '.':
+                ext = '.png'  # 默认扩展名
+            safe_filename = f"{name}_{timestamp}_{unique_id}{ext}"
+            
+            # 保存到上传目录
+            backend_filepath = os.path.join(app.config['UPLOAD_FOLDER'], safe_filename)
+            
+            try:
+                with open(backend_filepath, 'wb') as f:
+                    f.write(image_binary)
+                
+                backend_filesize = os.path.getsize(backend_filepath)
+                print(f"后端文件大小: {backend_filesize} 字节")
+                
+                return jsonify({
+                    "message": "成功上传1张图片",
+                    "filenames": [safe_filename]
+                })
+            except Exception as e:
+                print(f"保存文件错误: {str(e)}")
+                return jsonify({"error": f"保存文件失败: {str(e)}"}), 500
+        except Exception as e:
+            print(f"JSON请求处理错误: {str(e)}")
+            return jsonify({"error": f"处理请求失败: {str(e)}"}), 500
+    
+    # 常规表单文件上传处理
     # 获取用户ID，这是必需的
     user_id = request.form.get('user_id')
     if not user_id:
-        print("错误: 缺少用户ID")
         return jsonify({"error": "缺少用户ID"}), 400
     
     # 获取上传的文件
@@ -201,33 +248,27 @@ def upload_file():
                 files = [request.files[first_key]]
             print(f"使用自动检测的文件字段: {first_key}, 找到 {len(files)} 个文件")
         else:
-            print("错误: 未找到上传的文件")
             return jsonify({"error": "未找到上传的文件"}), 400
     
     # 打印文件信息
     for i, file in enumerate(files):
-        print(f"\n文件 {i+1} 详细信息:")
-        print(f"  名称: {file.filename}")
-        print(f"  类型: {file.content_type}")
-        print(f"  大小: {file.content_length if hasattr(file, 'content_length') else '未知'}")
+        print(f"文件 {i+1} 信息: 名称={file.filename}, 内容类型={file.content_type}")
     
-    print(f"\n用户ID: {user_id}, 文件数量: {len(files)}")
+    print(f"用户ID: {user_id}, 文件数量: {len(files)}")
     
     # 保存文件并收集文件名
     saved_filenames = []
     for i, file in enumerate(files):
         if file and file.filename:
-            print(f"\n处理文件 {i+1}: {file.filename}")
+            print(f"处理文件 {i+1}: {file.filename}, 类型: {file.content_type}")
             
             # 确保文件类型安全
             filename = secure_filename(file.filename)
             file_ext = os.path.splitext(filename)[1].lower()
             
-            print(f"  检查文件扩展名: {file_ext.lstrip('.')}")
-            print(f"  允许的扩展名: {ALLOWED_EXTENSIONS}")
-            
+            print(f"检查文件扩展名: {file_ext.lstrip('.')}, 允许的扩展名: {ALLOWED_EXTENSIONS}")
             if file_ext.lstrip('.') not in ALLOWED_EXTENSIONS:
-                print(f"  错误: 不允许的扩展名: {file_ext}")
+                print(f"文件 {i+1}: 不允许的扩展名: {file_ext}")
                 continue
             
             # 生成唯一文件名
@@ -237,38 +278,45 @@ def upload_file():
             safe_filename = f"{name}_{timestamp}_{unique_id}{ext}"
             
             # 打印路径信息
-            print(f"  当前工作目录: {os.getcwd()}")
-            print(f"  上传目录: {app.config['UPLOAD_FOLDER']}")
+            print(f"当前工作目录: {os.getcwd()}")
+            print(f"上传目录: {app.config['UPLOAD_FOLDER']}")
             
             # 保存到后端目录
             backend_filepath = os.path.join(app.config['UPLOAD_FOLDER'], safe_filename)
-            print(f"  尝试保存文件到: {backend_filepath}")
+            print(f"尝试保存文件到后端目录: {backend_filepath}")
             
             try:
                 file.save(backend_filepath)
                 backend_filesize = os.path.getsize(backend_filepath)
-                print(f"  文件保存成功: {safe_filename}")
-                print(f"  文件大小: {backend_filesize} 字节")
+                print(f"文件 {i+1} 保存成功: {safe_filename}")
+                print(f"后端文件大小: {backend_filesize} 字节")
                 
                 saved_filenames.append(safe_filename)
             except Exception as e:
-                print(f"  保存文件失败: {str(e)}")
-                print(f"  错误类型: {type(e)}")
-                print(f"  错误详情: {str(e)}")
+                print(f"保存文件 {i+1} 失败: {str(e)}")
                 continue
     
     if not saved_filenames:
-        print("\n错误: 未能成功保存任何文件")
         return jsonify({"error": "未能成功保存任何文件"}), 400
     
     # 返回成功消息和文件名列表
-    print(f"\n成功上传 {len(saved_filenames)} 张图片")
+    print(f"成功上传 {len(saved_filenames)} 张图片")
     response_data = {
         "message": f"成功上传{len(saved_filenames)}张图片",
         "filenames": saved_filenames
     }
     print(f"响应数据: {response_data}")
     return jsonify(response_data)
+
+# 访问上传的文件
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+# 新增路由，通过/images路径访问图片
+@app.route('/images/<filename>')
+def serve_image(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 # 用户注册
 @app.route('/api/register', methods=['POST'])
@@ -444,7 +492,7 @@ def create_post():
         user_id=user_id,
         content=content,
         images=images,
-        comments_disabled=disable_comments
+        disable_comments=disable_comments
     )
     
     try:
@@ -477,7 +525,7 @@ def get_posts():
         
         # 获取评论，按时间顺序排序
         comments_list = []
-        if not post.comments_disabled:
+        if not post.disable_comments:
             comments = Comment.query.filter_by(post_id=post.id, parent_id=None).order_by(Comment.created_at.asc()).all()
             
             for comment in comments:
@@ -532,7 +580,7 @@ def get_posts():
             'comment_count': comment_count,
             'is_liked': is_liked,
             'comments': comments_list,
-            'disable_comments': post.comments_disabled
+            'disable_comments': post.disable_comments
         }
         result.append(post_data)
     
@@ -598,7 +646,7 @@ def add_comment(post_id):
     if not post:
         return jsonify({'error': '动态不存在'}), 404
     
-    if post.comments_disabled:
+    if post.disable_comments:
         return jsonify({'error': '该动态已禁止评论'}), 403
     
     # 检查用户是否有发布权限
@@ -662,11 +710,9 @@ def delete_post(post_id):
     if not user:
         return jsonify({'error': '用户不存在'}), 404
     
-    # 检查权限：只有发布者、教师或管理员可以删除
-    if not (post.user_id == int(user_id) or 
-            user.is_teacher or 
-            user.is_admin):
-        return jsonify({'error': '没有权限删除此动态'}), 403
+    # 检查权限：仅超级管理员或动态发布者可以删除
+    if not user.is_admin and post.user_id != int(user_id):
+        return jsonify({'error': '权限不足，您不能删除他人的动态'}), 403
     
     try:
         # 删除与动态相关的所有内容
@@ -710,9 +756,12 @@ def delete_comment(comment_id):
     if not user:
         return jsonify({'error': '用户不存在'}), 404
     
-    # 检查权限：只有评论者可以删除
-    if comment.user_id != int(user_id):
-        return jsonify({'error': '没有权限删除此评论'}), 403
+    # 检查权限：超级管理员、评论发布者或动态发布者可以删除评论
+    is_comment_owner = comment.user_id == int(user_id)
+    is_post_owner = Post.query.get(comment.post_id).user_id == int(user_id)
+    
+    if not user.is_admin and not is_comment_owner and not is_post_owner:
+        return jsonify({'error': '权限不足，您不能删除此评论'}), 403
     
     try:
         # 删除该评论下的所有回复
@@ -747,22 +796,20 @@ def toggle_disable_comments(post_id):
     if not user:
         return jsonify({'error': '用户不存在'}), 404
     
-    # 检查权限：只有发布者、教师或管理员可以操作
-    if not (post.user_id == int(user_id) or 
-            user.is_teacher or 
-            user.is_admin):
-        return jsonify({'error': '没有权限操作此动态'}), 403
+    # 检查是否是动态作者且是教师
+    if not user.is_teacher:
+        return jsonify({'error': '只有教师才能修改评论设置'}), 403
         
+    if int(post.user_id) != int(user_id):
+        return jsonify({'error': '您只能修改自己发布的动态'}), 403
+    
     try:
         # 切换评论禁用状态
-        post.comments_disabled = not post.comments_disabled
+        post.disable_comments = not post.disable_comments
         db.session.commit()
         
-        status = '禁止' if post.comments_disabled else '允许'
-        return jsonify({
-            'message': f'已{status}评论',
-            'comments_disabled': post.comments_disabled
-        }), 200
+        status = '禁止' if post.disable_comments else '允许'
+        return jsonify({'message': f'已{status}评论', 'disable_comments': post.disable_comments}), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'修改评论设置失败: {str(e)}'}), 500
@@ -1344,326 +1391,6 @@ def restore_system():
         }), 200
     except Exception as e:
         return jsonify({'error': f'恢复系统失败: {str(e)}'}), 500
-
-# 超级管理员添加用户
-@app.route('/api/admin/users', methods=['POST'])
-def admin_add_user():
-    data = request.get_json()
-    
-    if not data or not data.get('admin_id'):
-        return jsonify({'error': '管理员ID不能为空'}), 400
-    
-    admin_id = data.get('admin_id')
-    
-    # 验证操作者是否为超级管理员
-    admin = User.query.get(admin_id)
-    if not admin or not admin.is_admin:
-        return jsonify({'error': '权限不足，只有超级管理员可以添加用户'}), 403
-    
-    # 验证必需字段
-    if not data.get('username') or not data.get('password'):
-        return jsonify({'error': '用户名和密码不能为空'}), 400
-    
-    # 验证用户名：6-16个字符，首字符必须是字母
-    username = data['username']
-    if not (6 <= len(username) <= 16):
-        return jsonify({'error': '用户名长度必须在6-16个字符之间'}), 400
-    if not username[0].isalpha():
-        return jsonify({'error': '用户名必须以字母开头'}), 400
-    
-    # 验证密码：最少7位的字母和数字组合
-    password = data['password']
-    if len(password) < 7:
-        return jsonify({'error': '密码长度不能少于7位'}), 400
-    if not any(c.isalpha() for c in password) or not any(c.isdigit() for c in password):
-        return jsonify({'error': '密码必须包含字母和数字'}), 400
-    
-    # 检查用户名是否已存在
-    existing_user = User.query.filter_by(username=username).first()
-    if existing_user:
-        return jsonify({'error': '用户名已存在'}), 400
-    
-    # 处理可选的真实姓名
-    real_name = data.get('real_name')
-    
-    # 如果提供了真实姓名，进行验证
-    if real_name and len(real_name) > 0:
-        if not (2 <= len(real_name) <= 5):
-            return jsonify({'error': '姓名昵称长度必须在2-5个汉字之间'}), 400
-        if not all('\u4e00' <= char <= '\u9fff' for char in real_name):
-            return jsonify({'error': '姓名昵称必须是汉字'}), 400
-    
-    # 获取其他字段
-    is_teacher = bool(data.get('is_teacher', False))
-    is_active = bool(data.get('is_active', True))
-    can_post = bool(data.get('can_post', True))
-    is_first_login = bool(data.get('is_first_login', True))
-    grade = data.get('grade') if not is_teacher else None
-    class_name = data.get('class_name') if not is_teacher else None
-    
-    # 如果是学生账号，验证年级和班级
-    if not is_teacher:
-        if not grade or not class_name:
-            return jsonify({'error': '学生账号必须提供年级和班级'}), 400
-        if not (1 <= int(grade) <= 5 and 1 <= int(class_name) <= 6):
-            return jsonify({'error': '年级必须在1-5年级之间，班级必须在1-6班之间'}), 400
-        
-        # 转换为整数
-        grade = int(grade)
-        class_name = int(class_name)
-    
-    # 创建新用户
-    new_user = User(
-        username=username,
-        password_hash=generate_password_hash(password),
-        real_name=real_name,
-        is_teacher=is_teacher,
-        is_admin=False,  # 管理员创建的用户不能是管理员
-        is_active=is_active,
-        can_post=can_post,
-        is_first_login=is_first_login,
-        grade=grade,
-        class_name=class_name
-    )
-    
-    try:
-        db.session.add(new_user)
-        db.session.commit()
-        
-        # 返回新创建的用户信息
-        user_data = {
-            'id': new_user.id,
-            'username': new_user.username,
-            'real_name': new_user.real_name,
-            'is_teacher': new_user.is_teacher,
-            'is_admin': new_user.is_admin,
-            'is_active': new_user.is_active,
-            'is_first_login': new_user.is_first_login,
-            'can_post': new_user.can_post,
-            'grade': new_user.grade,
-            'class_name': new_user.class_name
-        }
-        
-        return jsonify({'message': '用户创建成功', 'user': user_data}), 201
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'创建用户失败: {str(e)}'}), 500
-
-# 批量导入学生账号
-@app.route('/api/admin/import-students', methods=['POST'])
-def import_students():
-    data = request.get_json()
-    
-    if not data or not data.get('admin_id') or not data.get('students'):
-        return jsonify({'error': '管理员ID和学生数据不能为空'}), 400
-    
-    admin_id = data.get('admin_id')
-    students = data.get('students')
-    
-    # 验证操作者是否为超级管理员
-    admin = User.query.get(admin_id)
-    if not admin or not admin.is_admin:
-        return jsonify({'error': '权限不足，只有超级管理员可以批量导入账号'}), 403
-    
-    # 验证学生数据
-    if not isinstance(students, list) or len(students) == 0:
-        return jsonify({'error': '学生数据格式不正确或为空'}), 400
-    
-    # 创建的用户列表
-    created_users = []
-    errors = []
-    
-    for i, student in enumerate(students):
-        # 验证必需字段
-        if not student.get('username') or not student.get('grade') or not student.get('class_name'):
-            errors.append({
-                'index': i,
-                'error': '用户名、年级和班级不能为空',
-                'data': student
-            })
-            continue
-        
-        # 验证用户名：6-16个字符，首字符必须是字母
-        username = student['username']
-        if not (6 <= len(username) <= 16):
-            errors.append({
-                'index': i,
-                'error': '用户名长度必须在6-16个字符之间',
-                'data': student
-            })
-            continue
-        
-        if not username[0].isalpha():
-            errors.append({
-                'index': i,
-                'error': '用户名必须以字母开头',
-                'data': student
-            })
-            continue
-        
-        # 处理密码：如果为空，生成默认密码
-        password = student.get('password', '')
-        if not password:
-            # 使用固定的默认密码
-            password = "yzx1234s"
-        else:
-            # 验证用户提供的密码
-            if len(password) < 7:
-                errors.append({
-                    'index': i,
-                    'error': '密码长度不能少于7位',
-                    'data': student
-                })
-                continue
-            
-            if not any(c.isalpha() for c in password) or not any(c.isdigit() for c in password):
-                errors.append({
-                    'index': i,
-                    'error': '密码必须包含字母和数字',
-                    'data': student
-                })
-                continue
-        
-        # 检查用户名是否已存在
-        existing_user = User.query.filter_by(username=username).first()
-        if existing_user:
-            errors.append({
-                'index': i,
-                'error': '用户名已存在',
-                'data': student
-            })
-            continue
-        
-        # 验证年级和班级
-        try:
-            grade = int(student['grade'])
-            class_name = int(student['class_name'])
-            
-            if not (1 <= grade <= 5 and 1 <= class_name <= 6):
-                errors.append({
-                    'index': i,
-                    'error': '年级必须在1-5年级之间，班级必须在1-6班之间',
-                    'data': student
-                })
-                continue
-        except (ValueError, TypeError):
-            errors.append({
-                'index': i,
-                'error': '年级和班级必须是数字',
-                'data': student
-            })
-            continue
-        
-        # 创建新用户
-        new_user = User(
-            username=username,
-            password_hash=generate_password_hash(password),
-            real_name=student.get('real_name', username),  # 如果real_name为空，使用username作为默认值
-            is_teacher=False,  # 一定是学生
-            is_admin=False,  # 一定不是管理员
-            is_active=True,  # 默认启用
-            can_post=True,  # 默认允许发布内容
-            is_first_login=True,  # 必须首次登录修改密码和姓名
-            grade=grade,
-            class_name=class_name
-        )
-        
-        try:
-            db.session.add(new_user)
-            created_users.append({
-                'username': new_user.username,
-                'grade': new_user.grade,
-                'class_name': new_user.class_name,
-                'password': password  # 返回生成的密码
-            })
-        except Exception as e:
-            errors.append({
-                'index': i,
-                'error': f'创建用户失败: {str(e)}',
-                'data': student
-            })
-    
-    # 提交事务
-    try:
-        db.session.commit()
-        return jsonify({
-            'message': f'成功导入 {len(created_users)} 个学生账号',
-            'created_users': created_users,
-            'errors': errors
-        }), 201
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'批量导入失败: {str(e)}'}), 500
-
-# 更新用户密码和个人信息（首次登录使用）
-@app.route('/api/users/update-profile', methods=['POST'])
-def update_first_login_profile():
-    data = request.get_json()
-    print(f"收到更新个人信息请求: {data}")
-    
-    if not data or not data.get('user_id') or not data.get('password') or not data.get('real_name'):
-        print("错误: 缺少必要的字段")
-        return jsonify({'error': '用户ID、新密码和姓名昵称不能为空'}), 400
-    
-    user_id = data.get('user_id')
-    password = data.get('password')
-    real_name = data.get('real_name')
-    
-    # 验证密码：最少7位的字母和数字组合
-    if len(password) < 7:
-        print("错误: 密码长度不足7位")
-        return jsonify({'error': '密码长度不能少于7位'}), 400
-    if not any(c.isalpha() for c in password) or not any(c.isdigit() for c in password):
-        print("错误: 密码必须包含字母和数字")
-        return jsonify({'error': '密码必须包含字母和数字'}), 400
-    
-    # 验证真实姓名：2-5个汉字
-    if not (2 <= len(real_name) <= 5):
-        print("错误: 姓名昵称长度不符合要求")
-        return jsonify({'error': '姓名昵称长度必须在2-5个汉字之间'}), 400
-    if not all('\u4e00' <= char <= '\u9fff' for char in real_name):
-        print("错误: 姓名昵称必须是汉字")
-        return jsonify({'error': '姓名昵称必须是汉字'}), 400
-    
-    user = User.query.get(user_id)
-    if not user:
-        print(f"错误: 未找到ID为{user_id}的用户")
-        return jsonify({'error': '用户不存在'}), 404
-    
-    try:
-        print(f"更新用户信息 - 之前: id={user.id}, username={user.username}, is_first_login={user.is_first_login}")
-        
-        # 更新用户信息
-        user.password_hash = generate_password_hash(password)
-        user.real_name = real_name
-        user.is_first_login = False  # 标记为非首次登录
-        
-        db.session.commit()
-        print(f"更新用户信息 - 之后: id={user.id}, username={user.username}, is_first_login={user.is_first_login}")
-        
-        # 返回更新后的用户信息
-        user_data = {
-            'id': user.id,
-            'username': user.username,
-            'real_name': user.real_name,
-            'is_teacher': user.is_teacher,
-            'is_admin': user.is_admin,
-            'is_active': user.is_active,
-            'is_first_login': user.is_first_login,
-            'can_post': user.can_post,
-            'grade': user.grade,
-            'class_name': user.class_name
-        }
-        
-        print(f"返回更新后的用户数据: {user_data}")
-        return jsonify({
-            'message': '个人信息更新成功',
-            'user': user_data
-        }), 200
-    except Exception as e:
-        db.session.rollback()
-        print(f"错误: 更新用户信息失败 - {str(e)}")
-        return jsonify({'error': f'更新个人信息失败: {str(e)}'}), 500
 
 if __name__ == '__main__':
     with app.app_context():

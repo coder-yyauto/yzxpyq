@@ -20,8 +20,8 @@ group = "yzxuser"
 proc_name = "campus_gunicorn"
 
 # 访问日志和错误日志
-accesslog = "/home/yzxuser/logs/campus_access.log"
-errorlog = "/home/yzxuser/logs/campus_error.log"
+accesslog = "/var/log/campus_yzx/campus_access.log"
+errorlog = "/var/log/campus_yzx/campus_error.log"
 loglevel = "info"
 
 # 是否守护进程

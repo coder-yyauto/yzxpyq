@@ -2,7 +2,7 @@
   <div class="moments-container">
     <!-- 顶部导航栏 -->
     <div class="top-nav">
-      <h1>校园动态</h1>
+      <h1>朋友圈</h1>
       <div class="user-info">
         <el-switch
           v-model="useExactTime"
@@ -44,17 +44,19 @@
             <h3 :class="{'teacher-name': post.is_teacher}">{{ post.real_name }}</h3>
             <span class="post-time">{{ formatTime(post.created_at) }}</span>
           </div>
-          <div class="post-actions" v-if="post.user_id === user.id && user.is_teacher">
-            <el-dropdown trigger="click" @command="handlePostAction($event, post)">
+          <div class="post-operations">
+            <el-dropdown v-if="canManagePost(post)" @command="handlePostAction($event, post)">
               <span class="el-dropdown-link">
                 <i class="el-icon-more"></i>
               </span>
-              <el-dropdown-menu slot="dropdown">
-                <el-dropdown-item command="toggle-comments">
-                  {{ post.disable_comments ? '启用评论' : '禁止评论' }}
-                </el-dropdown-item>
-                <el-dropdown-item command="delete" divided>删除动态</el-dropdown-item>
-              </el-dropdown-menu>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item :command="'delete'">删除动态</el-dropdown-item>
+                  <el-dropdown-item :command="'toggle_comments'">
+                    {{ post.disable_comments ? '允许评论' : '禁止评论' }}
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
             </el-dropdown>
           </div>
         </div>
@@ -63,21 +65,21 @@
           <p>{{ post.content }}</p>
           
           <!-- 九宫格图片显示 -->
-          <div v-if="post.images && post.images.length > 0" class="post-images">
-            <div :class="getImageGridClass(post.images.length)">
-              <div v-for="(image, index) in post.images" :key="index" class="image-item">
-                <el-image 
-                  :src="'/images/' + image" 
-                  fit="cover"
-                  @click="previewImage(post.images, index)" 
-                  class="post-image"
-                >
-                  <div slot="error" class="image-error">
-                    <i class="el-icon-picture-outline"></i>
-                  </div>
-                </el-image>
-              </div>
-            </div>
+          <div v-if="post.images && post.images.length > 0" :class="getImageGridClass(post.images.length)">
+            <el-image
+              v-for="(image, index) in post.images"
+              :key="index"
+              :src="'/api/images/' + image"
+              :preview-src-list="post.images.map(img => '/api/images/' + img)"
+              fit="cover"
+              @error="handleImageError"
+            >
+              <template #error>
+                <div class="image-error">
+                  <i class="el-icon-picture-outline"></i>
+                </div>
+              </template>
+            </el-image>
           </div>
         </div>
         
@@ -294,45 +296,17 @@ export default {
         // 解析ISO格式的时间字符串
         const date = new Date(timeString)
         
-        // 检查时区偏移
-        const utcHoursDiff = date.getTimezoneOffset() / 60
-        console.log('原始时间:', timeString, '解析后时间:', date.toISOString(), '时区差异:', utcHoursDiff)
-        
-        // 对时间进行调整（如果需要）
-        // 注意：我们添加了时区调整，因为可能存在UTC与北京时间的差异
-        const adjustedDate = this.adjustTimeZone(date)
-        
         if (this.useExactTime) {
           // 精确的时间格式：年-月-日 时:分
-          return format(adjustedDate, 'yyyy-MM-dd HH:mm', { locale: zhCN })
+          return format(date, 'yyyy-MM-dd HH:mm', { locale: zhCN })
         } else {
           // 相对时间格式：几小时前
-          return formatDistanceToNow(adjustedDate, { addSuffix: true, locale: zhCN })
+          return formatDistanceToNow(date, { addSuffix: true, locale: zhCN })
         }
       } catch (e) {
         console.error('时间格式化错误:', e, timeString)
         return timeString
       }
-    },
-    
-    // 辅助函数：调整时区（如果需要）
-    adjustTimeZone(date) {
-      // 获取服务器时间与本地时间的时区偏移
-      const timezoneOffset = date.getTimezoneOffset() / 60
-      
-      // 强制直接使用中国标准时间 (UTC+8)
-      // 首先判断日期是否在中国的正常时间范围内
-      const hours = date.getHours()
-      const needsAdjustment = hours < 8 && Math.abs(timezoneOffset) >= 5
-      
-      if (needsAdjustment) {
-        console.log('检测到可能的UTC时间，小时数为:', hours, '，进行时区调整')
-        // 如果小时数小于8且时区偏移很大，很可能是UTC时间需要转换为中国时间
-        return addHours(date, 8)
-      }
-      
-      // 如果没有检测到问题，则返回原始日期
-      return date
     },
     getImageGridClass(count) {
       if (count === 1) return 'image-grid-1'
@@ -344,7 +318,7 @@ export default {
     },
     previewImage(images, index) {
       // 添加前缀以获取完整URL
-      const fullImageUrl = `/images/${images[index]}`
+      const fullImageUrl = `/api/images/${images[index]}`
       this.$msgbox({
         title: '图片预览',
         message: this.$createElement('img', {
@@ -466,6 +440,13 @@ export default {
       }
     },
     canDeleteComment(comment) {
+      // 管理员可以删除任何评论
+      if (this.user.is_admin) return true
+      
+      // 教师可以删除普通用户的评论
+      if (this.user.is_teacher && !comment.is_teacher) return true
+      
+      // 所有用户都可以删除自己的评论
       return comment.user_id === this.user.id
     },
     async deleteComment(commentId) {
@@ -499,7 +480,7 @@ export default {
     async handlePostAction(command, post) {
       if (command === 'delete') {
         this.deletePost(post.id)
-      } else if (command === 'toggle-comments') {
+      } else if (command === 'toggle_comments') {
         this.toggleComments(post.id)
       }
     },
@@ -556,6 +537,33 @@ export default {
       localStorage.setItem('timeFormat', this.useExactTime ? 'exact' : 'relative')
       // 刷新动态以更新时间显示
       this.fetchPosts()
+    },
+    canManagePost(post) {
+      // 添加调试日志
+      console.log('Current User:', this.user)
+      console.log('Post:', post)
+      console.log('Post User ID:', post.user_id, typeof post.user_id)
+      console.log('Current User ID:', this.user.id, typeof this.user.id)
+      
+      // 确保ID类型一致
+      const postUserId = parseInt(post.user_id)
+      const currentUserId = parseInt(this.user.id)
+      
+      // 管理员可以管理任何动态
+      if (this.user.is_admin) return true
+      
+      // 教师可以管理普通用户的动态
+      if (this.user.is_teacher && !post.is_teacher) return true
+      
+      // 所有用户都可以管理自己的动态
+      const canManage = postUserId === currentUserId
+                       
+      console.log('Can Manage:', canManage)
+      return canManage
+    },
+    handleImageError(e) {
+      console.error('图片加载失败:', e);
+      // 可以在这里添加重试逻辑或显示默认图片
     }
   }
 }
@@ -585,8 +593,16 @@ export default {
 
 .el-dropdown-link {
   cursor: pointer;
+  color: #909399;
+  font-size: 18px;
+  padding: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.el-dropdown-link:hover {
   color: #409EFF;
-  margin-left: 5px;
 }
 
 h1 {
@@ -654,14 +670,10 @@ h1 {
   margin-top: 5px;
 }
 
-.post-actions {
+.post-operations {
   display: flex;
-  justify-content: flex-end;
-}
-
-.el-dropdown-link {
-  cursor: pointer;
-  color: #909399;
+  gap: 10px;
+  align-items: center;
 }
 
 .post-content {

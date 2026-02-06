@@ -1,9 +1,12 @@
 AI助手请关注下列情况，
-如处本项目于SSH远程连接状态，那么AI助手，应该在任何远程操作的时候，使用yzxuser用户身份而不是root身份。
-比如：远程连接使用yzxuser账号
-重启后端服务，sudo systemctl status campus-gunicorn.service
-看后端服务状态要，sudo systemctl status campus-gunicorn.service --no-pager
-后端日志，tail -n 50 /home/yzxuser/logs/campus_stderr.log
-远程主机上，/opt/dist目录是frontend/dist目录的软连接，不用复制同步。
-远程主机上的python环境管理系统是yzxuser账号下的micromamba: /home/yzxuser/bin/micromamba
-远程主机上的python虚拟环境是：/home/yzxuser/micromamba/envs/yzx/bin/python
+AI助手操作指南：
+1. 远程连接时请始终使用yzxuser账号而非root账号
+2. 服务管理命令：
+   - 重启服务: sudo systemctl restart campus-gunicorn.service
+   - 查看状态: sudo systemctl status campus-gunicorn.service --no-pager
+   - 查看日志: tail -n 50 /home/yzxuser/logs/campus_stderr.log
+3. 目录说明：
+   - /opt/dist 是前端dist目录的软链接，无需手动同步
+4. Python环境：
+   - 管理系统: /home/yzxuser/bin/micromamba
+   - 虚拟环境: /home/yzxuser/micromamba/envs/yzx/bin/python
